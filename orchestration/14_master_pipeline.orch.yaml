@@ -1,0 +1,501 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Initialize Master Pipeline"
+      parameters:
+        componentName: "Start"
+    
+    Initialize Master Pipeline:
+      type: "python-script"
+      transitions:
+        success:
+        - "Check Environment"
+      parameters:
+        componentName: "Initialize Master Pipeline"
+        script: |
+          from datetime import datetime
+          
+          start_time = datetime.now()
+          
+          print('=' * 70)
+          print('  MATILLION ETL LEARNING PROJECT - MASTER PIPELINE')
+          print('=' * 70)
+          print(f'  Started: {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
+          print(f'  Environment: {context.getVariable("env")}')
+          print('=' * 70)
+          print('')
+          print('This master pipeline coordinates the entire ETL workflow:')
+          print('  1. Setup infrastructure (schema, logging tables)')
+          print('  2. Create dimension and fact tables')
+          print('  3. Generate sample data')
+          print('  4. Run data quality checks')
+          print('  5. Execute transformations')
+          print('')
+          
+          context.updateVariable('pipeline_start_time', start_time.isoformat())
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Environment:
+      type: "if"
+      transitions:
+        "true":
+        - "Run Setup Schema"
+        "false":
+        - "Skip to Data Generation"
+      parameters:
+        componentName: "Check Environment"
+        mode: "Advanced"
+        condition1: "\"${env}\" == \"dev\" OR \"${env}\" == \"prod\""
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Run Setup Schema:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Create Dimension Tables"
+        failure:
+        - "Handle Setup Failure"
+      parameters:
+        componentName: "Run Setup Schema"
+        orchestrationJob: "orchestration/00_setup_schema"
+    
+    Run Create Dimension Tables:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Create Fact Tables"
+        failure:
+        - "Handle Table Creation Failure"
+      parameters:
+        componentName: "Run Create Dimension Tables"
+        orchestrationJob: "orchestration/01_create_dimension_tables"
+    
+    Run Create Fact Tables:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Skip to Data Generation"
+        failure:
+        - "Handle Table Creation Failure"
+      parameters:
+        componentName: "Run Create Fact Tables"
+        orchestrationJob: "orchestration/02_create_fact_tables"
+    
+    Handle Setup Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error to Table"
+      parameters:
+        componentName: "Handle Setup Failure"
+        script: |
+          print('ERROR: Schema setup failed!')
+          context.updateVariable('error_stage', 'Setup Schema')
+          context.updateVariable('error_message', 'Failed to create schema or logging tables')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Handle Table Creation Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error to Table"
+      parameters:
+        componentName: "Handle Table Creation Failure"
+        script: |
+          print('ERROR: Table creation failed!')
+          context.updateVariable('error_stage', 'Table Creation')
+          context.updateVariable('error_message', 'Failed to create dimension or fact tables')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Skip to Data Generation:
+      type: "python-script"
+      transitions:
+        success:
+        - "Run Generate Date Dimension"
+      parameters:
+        componentName: "Skip to Data Generation"
+        script: |
+          print('Infrastructure ready. Proceeding to data generation...')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Run Generate Date Dimension:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Generate Customers"
+        failure:
+        - "Handle Data Generation Failure"
+      parameters:
+        componentName: "Run Generate Date Dimension"
+        orchestrationJob: "orchestration/03_generate_date_dimension"
+    
+    Run Generate Customers:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Generate Products Stores"
+        failure:
+        - "Handle Data Generation Failure"
+      parameters:
+        componentName: "Run Generate Customers"
+        orchestrationJob: "orchestration/04_generate_customers_python"
+    
+    Run Generate Products Stores:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Generate Sales"
+        failure:
+        - "Handle Data Generation Failure"
+      parameters:
+        componentName: "Run Generate Products Stores"
+        orchestrationJob: "orchestration/05_generate_products_stores"
+    
+    Run Generate Sales:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Data Quality Checks"
+        failure:
+        - "Handle Data Generation Failure"
+      parameters:
+        componentName: "Run Generate Sales"
+        orchestrationJob: "orchestration/06_generate_sales_data"
+    
+    Handle Data Generation Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error to Table"
+      parameters:
+        componentName: "Handle Data Generation Failure"
+        script: |
+          print('ERROR: Data generation failed!')
+          context.updateVariable('error_stage', 'Data Generation')
+          context.updateVariable('error_message', 'Failed to generate sample data')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Run Data Quality Checks:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run Transformations"
+        failure:
+        - "Handle Quality Check Failure"
+      parameters:
+        componentName: "Run Data Quality Checks"
+        orchestrationJob: "orchestration/09_data_quality_checks"
+    
+    Handle Quality Check Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Run Transformations"
+      parameters:
+        componentName: "Handle Quality Check Failure"
+        script: |
+          # Quality check failures are logged but don't stop the pipeline
+          print('WARNING: Some data quality checks failed!')
+          print('Continuing with transformations...')
+          print('Review etl_learning.data_quality_results for details')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Run Transformations:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Pipeline Complete"
+        failure:
+        - "Handle Transformation Failure"
+      parameters:
+        componentName: "Run Transformations"
+        orchestrationJob: "orchestration/13_run_transformation_demo"
+    
+    Handle Transformation Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error to Table"
+      parameters:
+        componentName: "Handle Transformation Failure"
+        script: |
+          print('ERROR: Transformation jobs failed!')
+          context.updateVariable('error_stage', 'Transformations')
+          context.updateVariable('error_message', 'Failed to execute transformation jobs')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Error to Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Failure"
+      parameters:
+        componentName: "Log Error to Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        - "error_stage"
+        - "error_message"
+        enableVariableResolution: "Yes"
+        sqlScript: |
+          INSERT INTO etl_learning.error_log
+          (pipeline_name, component_name, error_message, error_timestamp)
+          VALUES (
+              '14_master_pipeline',
+              '${error_stage}',
+              '${error_message}',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Pipeline Complete:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Pipeline Success"
+      parameters:
+        componentName: "Pipeline Complete"
+        script: |
+          from datetime import datetime
+          
+          start_time_str = context.getVariable('pipeline_start_time')
+          start_time = datetime.fromisoformat(start_time_str)
+          end_time = datetime.now()
+          duration = end_time - start_time
+          
+          print('')
+          print('=' * 70)
+          print('  MASTER PIPELINE COMPLETED SUCCESSFULLY')
+          print('=' * 70)
+          print(f'  Started:  {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
+          print(f'  Finished: {end_time.strftime("%Y-%m-%d %H:%M:%S")}')
+          print(f'  Duration: {duration}')
+          print('=' * 70)
+          print('')
+          print('Created tables:')
+          print('  - etl_learning.dim_customer')
+          print('  - etl_learning.dim_product')
+          print('  - etl_learning.dim_date')
+          print('  - etl_learning.dim_store')
+          print('  - etl_learning.fact_sales')
+          print('  - etl_learning.agg_daily_sales_summary')
+          print('  - etl_learning.agg_customer_metrics')
+          print('')
+          
+          context.updateVariable('pipeline_duration', str(duration))
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Pipeline Success:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Pipeline Success"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          INSERT INTO etl_learning.pipeline_log
+          (pipeline_name, step_name, status, message, execution_timestamp)
+          VALUES (
+              '14_master_pipeline',
+              'Complete',
+              'SUCCESS',
+              'Master pipeline completed all stages successfully',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+    
+    End Failure:
+      type: "end-failure"
+      parameters:
+        componentName: "End Failure"
+
+  variables:
+    env:
+      metadata:
+        type: "TEXT"
+        description: "Environment (dev/prod)"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "dev"
+    pipeline_start_time:
+      metadata:
+        type: "TEXT"
+        description: "Pipeline start timestamp"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+    pipeline_duration:
+      metadata:
+        type: "TEXT"
+        description: "Total pipeline duration"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+    error_stage:
+      metadata:
+        type: "TEXT"
+        description: "Stage where error occurred"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+    error_message:
+      metadata:
+        type: "TEXT"
+        description: "Error message"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+
+design:
+  components:
+    Start:
+      position:
+        x: -800
+        "y": 0
+      tempMetlId: 1
+    Initialize Master Pipeline:
+      position:
+        x: -650
+        "y": 0
+      tempMetlId: 2
+    Check Environment:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 3
+    Run Setup Schema:
+      position:
+        x: -350
+        "y": -50
+      tempMetlId: 4
+    Run Create Dimension Tables:
+      position:
+        x: -200
+        "y": -50
+      tempMetlId: 5
+    Run Create Fact Tables:
+      position:
+        x: -50
+        "y": -50
+      tempMetlId: 6
+    Handle Setup Failure:
+      position:
+        x: -350
+        "y": 150
+      tempMetlId: 7
+    Handle Table Creation Failure:
+      position:
+        x: -200
+        "y": 150
+      tempMetlId: 8
+    Skip to Data Generation:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 9
+    Run Generate Date Dimension:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 10
+    Run Generate Customers:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 11
+    Run Generate Products Stores:
+      position:
+        x: 550
+        "y": 0
+      tempMetlId: 12
+    Run Generate Sales:
+      position:
+        x: 700
+        "y": 0
+      tempMetlId: 13
+    Handle Data Generation Failure:
+      position:
+        x: 550
+        "y": 150
+      tempMetlId: 14
+    Run Data Quality Checks:
+      position:
+        x: 850
+        "y": 0
+      tempMetlId: 15
+    Handle Quality Check Failure:
+      position:
+        x: 850
+        "y": 100
+      tempMetlId: 16
+    Run Transformations:
+      position:
+        x: 1000
+        "y": 0
+      tempMetlId: 17
+    Handle Transformation Failure:
+      position:
+        x: 1000
+        "y": 150
+      tempMetlId: 18
+    Log Error to Table:
+      position:
+        x: 1150
+        "y": 150
+      tempMetlId: 19
+    Pipeline Complete:
+      position:
+        x: 1150
+        "y": 0
+      tempMetlId: 20
+    Log Pipeline Success:
+      position:
+        x: 1300
+        "y": 0
+      tempMetlId: 21
+    End Success:
+      position:
+        x: 1450
+        "y": 0
+      tempMetlId: 22
+    End Failure:
+      position:
+        x: 1300
+        "y": 150
+      tempMetlId: 23

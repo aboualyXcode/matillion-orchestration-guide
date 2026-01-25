@@ -1,0 +1,238 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Create Customer Dimension"
+      parameters:
+        componentName: "Start"
+    
+    Create Customer Dimension:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Product Dimension"
+      parameters:
+        componentName: "Create Customer Dimension"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Customer Dimension Table
+          CREATE TABLE IF NOT EXISTS etl_learning.dim_customer (
+              customer_id BIGINT NOT NULL COMMENT 'Unique customer identifier',
+              customer_code STRING NOT NULL COMMENT 'Business customer code',
+              first_name STRING NOT NULL COMMENT 'Customer first name',
+              last_name STRING NOT NULL COMMENT 'Customer last name',
+              email STRING COMMENT 'Email address',
+              phone STRING COMMENT 'Phone number',
+              address_line1 STRING COMMENT 'Street address',
+              city STRING COMMENT 'City',
+              state STRING COMMENT 'State or province',
+              postal_code STRING COMMENT 'Postal/ZIP code',
+              country STRING NOT NULL COMMENT 'Country code (ISO 3166)',
+              customer_segment STRING COMMENT 'Customer segment category',
+              registration_date DATE COMMENT 'Date customer registered',
+              is_active BOOLEAN DEFAULT TRUE COMMENT 'Active customer flag',
+              created_at TIMESTAMP NOT NULL COMMENT 'Record creation timestamp',
+              updated_at TIMESTAMP NOT NULL COMMENT 'Record update timestamp',
+              CONSTRAINT pk_customer PRIMARY KEY (customer_id)
+          )
+          USING DELTA
+          COMMENT 'Customer dimension table for sales analytics'
+          TBLPROPERTIES (
+              'delta.autoOptimize.optimizeWrite' = 'true',
+              'delta.autoOptimize.autoCompact' = 'true'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Product Dimension:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Date Dimension"
+      parameters:
+        componentName: "Create Product Dimension"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Product Dimension Table
+          CREATE TABLE IF NOT EXISTS etl_learning.dim_product (
+              product_id BIGINT NOT NULL COMMENT 'Unique product identifier',
+              product_sku STRING NOT NULL COMMENT 'Stock keeping unit',
+              product_name STRING NOT NULL COMMENT 'Product display name',
+              product_description STRING COMMENT 'Detailed description',
+              category STRING NOT NULL COMMENT 'Product category',
+              subcategory STRING COMMENT 'Product subcategory',
+              brand STRING COMMENT 'Brand name',
+              unit_cost DECIMAL(10,2) NOT NULL COMMENT 'Unit cost price',
+              unit_price DECIMAL(10,2) NOT NULL COMMENT 'Unit selling price',
+              weight_kg DECIMAL(8,3) COMMENT 'Product weight in kg',
+              is_active BOOLEAN DEFAULT TRUE COMMENT 'Active product flag',
+              launch_date DATE COMMENT 'Product launch date',
+              created_at TIMESTAMP NOT NULL COMMENT 'Record creation timestamp',
+              updated_at TIMESTAMP NOT NULL COMMENT 'Record update timestamp',
+              CONSTRAINT pk_product PRIMARY KEY (product_id)
+          )
+          USING DELTA
+          COMMENT 'Product dimension table for sales analytics'
+          TBLPROPERTIES (
+              'delta.autoOptimize.optimizeWrite' = 'true',
+              'delta.autoOptimize.autoCompact' = 'true'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Date Dimension:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Store Dimension"
+      parameters:
+        componentName: "Create Date Dimension"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Date Dimension Table
+          CREATE TABLE IF NOT EXISTS etl_learning.dim_date (
+              date_key INT NOT NULL COMMENT 'Date key in YYYYMMDD format',
+              full_date DATE NOT NULL COMMENT 'Full date value',
+              day_of_week INT NOT NULL COMMENT 'Day of week (1-7)',
+              day_name STRING NOT NULL COMMENT 'Day name',
+              day_of_month INT NOT NULL COMMENT 'Day of month (1-31)',
+              day_of_year INT NOT NULL COMMENT 'Day of year (1-366)',
+              week_of_year INT NOT NULL COMMENT 'Week number (1-53)',
+              month_number INT NOT NULL COMMENT 'Month number (1-12)',
+              month_name STRING NOT NULL COMMENT 'Month name',
+              quarter INT NOT NULL COMMENT 'Quarter (1-4)',
+              year INT NOT NULL COMMENT 'Calendar year',
+              is_weekend BOOLEAN NOT NULL COMMENT 'Weekend flag',
+              is_holiday BOOLEAN DEFAULT FALSE COMMENT 'Holiday flag',
+              fiscal_year INT COMMENT 'Fiscal year',
+              fiscal_quarter INT COMMENT 'Fiscal quarter',
+              CONSTRAINT pk_date PRIMARY KEY (date_key)
+          )
+          USING DELTA
+          COMMENT 'Date dimension table for time-based analysis';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Store Dimension:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Tables Created"
+      parameters:
+        componentName: "Create Store Dimension"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Store/Location Dimension Table
+          CREATE TABLE IF NOT EXISTS etl_learning.dim_store (
+              store_id BIGINT NOT NULL COMMENT 'Unique store identifier',
+              store_code STRING NOT NULL COMMENT 'Store code',
+              store_name STRING NOT NULL COMMENT 'Store display name',
+              store_type STRING COMMENT 'Store type (Retail, Warehouse, Online)',
+              address_line1 STRING COMMENT 'Street address',
+              city STRING COMMENT 'City',
+              state STRING COMMENT 'State or province',
+              postal_code STRING COMMENT 'Postal/ZIP code',
+              country STRING NOT NULL COMMENT 'Country code',
+              region STRING COMMENT 'Geographic region',
+              manager_name STRING COMMENT 'Store manager name',
+              open_date DATE COMMENT 'Store opening date',
+              square_footage INT COMMENT 'Store size in sq ft',
+              is_active BOOLEAN DEFAULT TRUE COMMENT 'Active store flag',
+              created_at TIMESTAMP NOT NULL COMMENT 'Record creation timestamp',
+              updated_at TIMESTAMP NOT NULL COMMENT 'Record update timestamp',
+              CONSTRAINT pk_store PRIMARY KEY (store_id)
+          )
+          USING DELTA
+          COMMENT 'Store dimension table for location-based analysis';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Tables Created:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Verify Tables Created"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify all dimension tables were created
+          SHOW TABLES IN etl_learning LIKE 'dim_*';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    schema_name:
+      metadata:
+        type: "TEXT"
+        description: "Target schema name"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "etl_learning"
+
+design:
+  components:
+    Start:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 1
+    Create Customer Dimension:
+      position:
+        x: -350
+        "y": 0
+      tempMetlId: 2
+    Create Product Dimension:
+      position:
+        x: -200
+        "y": 0
+      tempMetlId: 3
+    Create Date Dimension:
+      position:
+        x: -50
+        "y": 0
+      tempMetlId: 4
+    Create Store Dimension:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 5
+    Verify Tables Created:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 6
+    End Success:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 7

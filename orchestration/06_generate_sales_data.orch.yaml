@@ -1,0 +1,405 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Set Parameters"
+      parameters:
+        componentName: "Start"
+    
+    Set Parameters:
+      type: "python-script"
+      transitions:
+        success:
+        - "Check Prerequisites"
+      parameters:
+        componentName: "Set Parameters"
+        script: |
+          # Configuration for sales data generation
+          print('Sales Data Generation Configuration:')
+          print('  - Target records: 50,000')
+          print('  - Date range: 2023-01-01 to 2024-12-31')
+          print('  - Method: SQL-based generation with CTEs')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Prerequisites:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Prerequisites"
+      parameters:
+        componentName: "Check Prerequisites"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check that dimension tables have data
+          SELECT 
+              'dim_date' as table_name, COUNT(*) as cnt FROM etl_learning.dim_date
+          UNION ALL
+          SELECT 'dim_customer', COUNT(*) FROM etl_learning.dim_customer WHERE is_active = TRUE
+          UNION ALL
+          SELECT 'dim_product', COUNT(*) FROM etl_learning.dim_product WHERE is_active = TRUE
+          UNION ALL
+          SELECT 'dim_store', COUNT(*) FROM etl_learning.dim_store WHERE is_active = TRUE;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Prerequisites:
+      type: "if"
+      transitions:
+        "true":
+        - "Generate Sales Batch 1"
+        "false":
+        - "Prerequisites Failed"
+      parameters:
+        componentName: "Verify Prerequisites"
+        mode: "Simple"
+        condition1: "1 == 1"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Prerequisites Failed:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Failure"
+      parameters:
+        componentName: "Prerequisites Failed"
+        script: |
+          print('ERROR: Prerequisites not met!')
+          print('Please ensure dimension tables are populated before generating sales data.')
+          print('Required tables: dim_date, dim_customer, dim_product, dim_store')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Generate Sales Batch 1:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Generate Sales Batch 2"
+      parameters:
+        componentName: "Generate Sales Batch 1"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Generate Sales Fact Data - Batch 1 (25,000 records for 2023)
+          -- Uses SQL CTEs for referentially consistent data
+          
+          INSERT INTO etl_learning.fact_sales
+          WITH 
+          -- Generate sale IDs
+          sale_ids AS (
+              SELECT explode(sequence(1, 25000)) AS sale_id
+          ),
+          -- Get active customers
+          customers AS (
+              SELECT customer_id, ROW_NUMBER() OVER (ORDER BY customer_id) as rn
+              FROM etl_learning.dim_customer 
+              WHERE is_active = TRUE
+          ),
+          -- Get active products with pricing
+          products AS (
+              SELECT product_id, unit_price, unit_cost, 
+                     ROW_NUMBER() OVER (ORDER BY product_id) as rn
+              FROM etl_learning.dim_product 
+              WHERE is_active = TRUE
+          ),
+          -- Get active stores
+          stores AS (
+              SELECT store_id, ROW_NUMBER() OVER (ORDER BY store_id) as rn
+              FROM etl_learning.dim_store 
+              WHERE is_active = TRUE
+          ),
+          -- Get dates for 2023
+          dates AS (
+              SELECT date_key, full_date, year, month_number,
+                     ROW_NUMBER() OVER (ORDER BY date_key) as rn
+              FROM etl_learning.dim_date
+              WHERE full_date BETWEEN '2023-01-01' AND '2023-12-31'
+          ),
+          -- Combine with random assignments
+          base_sales AS (
+              SELECT 
+                  s.sale_id,
+                  d.date_key,
+                  d.full_date,
+                  d.year,
+                  d.month_number,
+                  c.customer_id,
+                  p.product_id,
+                  p.unit_price,
+                  p.unit_cost,
+                  st.store_id
+              FROM sale_ids s
+              CROSS JOIN (SELECT * FROM dates ORDER BY rand() LIMIT 1) d
+              CROSS JOIN (SELECT * FROM customers ORDER BY rand() LIMIT 1) c
+              CROSS JOIN (SELECT * FROM products ORDER BY rand() LIMIT 1) p
+              CROSS JOIN (SELECT * FROM stores ORDER BY rand() LIMIT 1) st
+          )
+          SELECT
+              sale_id,
+              (SELECT date_key FROM dates WHERE rn = 1 + MOD(sale_id, (SELECT COUNT(*) FROM dates))) as date_key,
+              (SELECT customer_id FROM customers WHERE rn = 1 + MOD(sale_id * 7, (SELECT COUNT(*) FROM customers))) as customer_id,
+              (SELECT product_id FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as product_id,
+              (SELECT store_id FROM stores WHERE rn = 1 + MOD(sale_id * 3, (SELECT COUNT(*) FROM stores))) as store_id,
+              CONCAT('ORD-2023-', LPAD(CAST(sale_id AS STRING), 8, '0')) AS order_number,
+              CAST(1 + FLOOR(RAND(sale_id) * 5) AS INT) AS quantity,
+              (SELECT unit_price FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as unit_price_val,
+              CASE WHEN RAND(sale_id + 1) < 0.3 THEN ROUND(RAND(sale_id + 2) * 15, 2) ELSE 0 END AS discount_pct,
+              0.0 AS tax_amount,
+              0.0 AS total_amount,
+              (SELECT unit_cost FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as cost_val,
+              0.0 AS profit_amount,
+              CASE CAST(FLOOR(RAND(sale_id + 3) * 4) AS INT)
+                  WHEN 0 THEN 'Online'
+                  WHEN 1 THEN 'Retail'
+                  WHEN 2 THEN 'Wholesale'
+                  ELSE 'Partner'
+              END AS sale_channel,
+              CURRENT_TIMESTAMP() AS created_at,
+              CONCAT('2023-', LPAD(CAST(1 + MOD(sale_id, 12) AS STRING), 2, '0')) AS year_month
+          FROM sale_ids;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Generate Sales Batch 2:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Update Calculated Fields"
+      parameters:
+        componentName: "Generate Sales Batch 2"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Generate Sales Fact Data - Batch 2 (25,000 records for 2024)
+          
+          INSERT INTO etl_learning.fact_sales
+          WITH sale_ids AS (
+              SELECT explode(sequence(25001, 50000)) AS sale_id
+          ),
+          customers AS (
+              SELECT customer_id, ROW_NUMBER() OVER (ORDER BY customer_id) as rn
+              FROM etl_learning.dim_customer WHERE is_active = TRUE
+          ),
+          products AS (
+              SELECT product_id, unit_price, unit_cost, 
+                     ROW_NUMBER() OVER (ORDER BY product_id) as rn
+              FROM etl_learning.dim_product WHERE is_active = TRUE
+          ),
+          stores AS (
+              SELECT store_id, ROW_NUMBER() OVER (ORDER BY store_id) as rn
+              FROM etl_learning.dim_store WHERE is_active = TRUE
+          ),
+          dates AS (
+              SELECT date_key, full_date, year, month_number,
+                     ROW_NUMBER() OVER (ORDER BY date_key) as rn
+              FROM etl_learning.dim_date
+              WHERE full_date BETWEEN '2024-01-01' AND '2024-12-31'
+          )
+          SELECT
+              sale_id,
+              (SELECT date_key FROM dates WHERE rn = 1 + MOD(sale_id, (SELECT COUNT(*) FROM dates))) as date_key,
+              (SELECT customer_id FROM customers WHERE rn = 1 + MOD(sale_id * 7, (SELECT COUNT(*) FROM customers))) as customer_id,
+              (SELECT product_id FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as product_id,
+              (SELECT store_id FROM stores WHERE rn = 1 + MOD(sale_id * 3, (SELECT COUNT(*) FROM stores))) as store_id,
+              CONCAT('ORD-2024-', LPAD(CAST(sale_id AS STRING), 8, '0')) AS order_number,
+              CAST(1 + FLOOR(RAND(sale_id) * 5) AS INT) AS quantity,
+              (SELECT unit_price FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as unit_price_val,
+              CASE WHEN RAND(sale_id + 1) < 0.3 THEN ROUND(RAND(sale_id + 2) * 15, 2) ELSE 0 END AS discount_pct,
+              0.0 AS tax_amount,
+              0.0 AS total_amount,
+              (SELECT unit_cost FROM products WHERE rn = 1 + MOD(sale_id * 13, (SELECT COUNT(*) FROM products))) as cost_val,
+              0.0 AS profit_amount,
+              CASE CAST(FLOOR(RAND(sale_id + 3) * 4) AS INT)
+                  WHEN 0 THEN 'Online'
+                  WHEN 1 THEN 'Retail'
+                  WHEN 2 THEN 'Wholesale'
+                  ELSE 'Partner'
+              END AS sale_channel,
+              CURRENT_TIMESTAMP() AS created_at,
+              CONCAT('2024-', LPAD(CAST(1 + MOD(sale_id, 12) AS STRING), 2, '0')) AS year_month
+          FROM sale_ids;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Update Calculated Fields:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Sales Data"
+      parameters:
+        componentName: "Update Calculated Fields"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Update calculated fields (tax, total, profit)
+          -- This demonstrates MERGE/UPDATE operations
+          
+          MERGE INTO etl_learning.fact_sales AS target
+          USING (
+              SELECT 
+                  sale_id,
+                  quantity,
+                  unit_price,
+                  discount_percent,
+                  cost_amount,
+                  ROUND(quantity * unit_price * (1 - discount_percent/100) * 0.08, 2) AS calc_tax,
+                  ROUND(quantity * unit_price * (1 - discount_percent/100) * 1.08, 2) AS calc_total,
+                  ROUND(quantity * unit_price * (1 - discount_percent/100) - quantity * cost_amount, 2) AS calc_profit
+              FROM etl_learning.fact_sales
+              WHERE tax_amount = 0
+          ) AS source
+          ON target.sale_id = source.sale_id
+          WHEN MATCHED THEN UPDATE SET
+              target.tax_amount = source.calc_tax,
+              target.total_amount = source.calc_total,
+              target.profit_amount = source.calc_profit;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Sales Data:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Completion"
+      parameters:
+        componentName: "Verify Sales Data"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify sales data generation
+          SELECT 
+              year_month,
+              COUNT(*) as transactions,
+              SUM(total_amount) as total_revenue,
+              SUM(profit_amount) as total_profit
+          FROM etl_learning.fact_sales
+          GROUP BY year_month
+          ORDER BY year_month;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Completion:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Completion"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('Sales data generation completed!')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          print('Generated 50,000 sales transactions')
+          print('Date range: 2023-01-01 to 2024-12-31')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+    
+    End Failure:
+      type: "end-failure"
+      parameters:
+        componentName: "End Failure"
+
+  variables:
+    num_sales:
+      metadata:
+        type: "TEXT"
+        description: "Number of sales records to generate"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "50000"
+
+design:
+  components:
+    Start:
+      position:
+        x: -600
+        "y": 0
+      tempMetlId: 1
+    Set Parameters:
+      position:
+        x: -450
+        "y": 0
+      tempMetlId: 2
+    Check Prerequisites:
+      position:
+        x: -300
+        "y": 0
+      tempMetlId: 3
+    Verify Prerequisites:
+      position:
+        x: -150
+        "y": 0
+      tempMetlId: 4
+    Prerequisites Failed:
+      position:
+        x: -150
+        "y": 100
+      tempMetlId: 5
+    Generate Sales Batch 1:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 6
+    Generate Sales Batch 2:
+      position:
+        x: 150
+        "y": 0
+      tempMetlId: 7
+    Update Calculated Fields:
+      position:
+        x: 300
+        "y": 0
+      tempMetlId: 8
+    Verify Sales Data:
+      position:
+        x: 450
+        "y": 0
+      tempMetlId: 9
+    Log Completion:
+      position:
+        x: 600
+        "y": 0
+      tempMetlId: 10
+    End Success:
+      position:
+        x: 750
+        "y": 0
+      tempMetlId: 11
+    End Failure:
+      position:
+        x: 0
+        "y": 100
+      tempMetlId: 12

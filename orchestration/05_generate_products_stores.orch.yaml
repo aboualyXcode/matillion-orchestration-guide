@@ -1,0 +1,293 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Generate Products"
+      parameters:
+        componentName: "Start"
+    
+    Generate Products:
+      type: "python-script"
+      transitions:
+        success:
+        - "Generate Stores"
+      parameters:
+        componentName: "Generate Products"
+        script: |
+          # Python Product Data Generator
+          # Demonstrates generating hierarchical product data
+          
+          import random
+          from datetime import datetime, timedelta
+          
+          NUM_PRODUCTS = 500
+          BATCH_SIZE = 100
+          
+          # Product catalog structure - realistic category hierarchy
+          PRODUCT_CATALOG = {
+              'Electronics': {
+                  'Smartphones': ['iPhone Pro', 'Galaxy Ultra', 'Pixel Plus', 'OnePlus Nord'],
+                  'Laptops': ['MacBook Air', 'ThinkPad X1', 'XPS 15', 'Surface Pro'],
+                  'Tablets': ['iPad Pro', 'Galaxy Tab', 'Surface Go', 'Fire HD'],
+                  'Audio': ['AirPods', 'WH-1000XM5', 'Galaxy Buds', 'Bose QC'],
+                  'Wearables': ['Apple Watch', 'Galaxy Watch', 'Fitbit Sense', 'Garmin Venu']
+              },
+              'Clothing': {
+                  'Shirts': ['Oxford Shirt', 'Polo Classic', 'V-Neck Tee', 'Henley Long'],
+                  'Pants': ['Slim Chinos', 'Classic Jeans', 'Cargo Pants', 'Dress Slacks'],
+                  'Outerwear': ['Wool Blazer', 'Puffer Jacket', 'Trench Coat', 'Fleece Zip'],
+                  'Footwear': ['Running Shoes', 'Loafers', 'Boots', 'Sneakers']
+              },
+              'Home': {
+                  'Furniture': ['Ergonomic Chair', 'Standing Desk', 'Bookshelf Oak', 'Sofa Sectional'],
+                  'Kitchen': ['Coffee Maker', 'Blender Pro', 'Air Fryer XL', 'Instant Pot'],
+                  'Decor': ['Table Lamp', 'Wall Art Set', 'Area Rug', 'Plant Pot'],
+                  'Bedding': ['Memory Foam Pillow', 'Duvet Cover', 'Sheet Set', 'Mattress Topper']
+              },
+              'Sports': {
+                  'Fitness': ['Yoga Mat', 'Dumbbells Set', 'Resistance Bands', 'Foam Roller'],
+                  'Outdoor': ['Hiking Boots', 'Camping Tent', 'Backpack 40L', 'Trekking Poles'],
+                  'Team Sports': ['Basketball', 'Soccer Ball', 'Tennis Racket', 'Golf Clubs']
+              },
+              'Office': {
+                  'Supplies': ['Notebook Set', 'Pen Pack', 'Desk Organizer', 'File Folders'],
+                  'Technology': ['Wireless Mouse', 'Mechanical Keyboard', 'Monitor Stand', 'Webcam HD'],
+                  'Furniture': ['Office Chair', 'L-Desk', 'Filing Cabinet', 'Whiteboard']
+              }
+          }
+          
+          BRANDS = ['TechPro', 'StyleCo', 'HomeEssentials', 'FitLife', 'Luxura',
+                   'ValueMax', 'PremiumPlus', 'EcoChoice', 'ProSeries', 'BasicLine']
+          
+          def generate_sku(category, index):
+              prefix = category[:3].upper()
+              return f'{prefix}-{random.randint(100,999)}-{index:04d}'
+          
+          def generate_cost_price(category):
+              base_ranges = {
+                  'Electronics': (50, 500),
+                  'Clothing': (10, 100),
+                  'Home': (20, 300),
+                  'Sports': (15, 150),
+                  'Office': (5, 100)
+              }
+              low, high = base_ranges.get(category, (20, 200))
+              cost = round(random.uniform(low, high), 2)
+              margin = random.uniform(1.3, 2.5)  # 30% to 150% markup
+              price = round(cost * margin, 2)
+              return cost, price
+          
+          def generate_launch_date():
+              start_date = datetime(2019, 1, 1)
+              end_date = datetime(2024, 6, 30)
+              delta = end_date - start_date
+              random_days = random.randint(0, delta.days)
+              return (start_date + timedelta(days=random_days)).strftime('%Y-%m-%d')
+          
+          # Generate products
+          print(f'Generating {NUM_PRODUCTS} product records...')
+          products = []
+          product_id = 1
+          
+          while len(products) < NUM_PRODUCTS:
+              for category, subcats in PRODUCT_CATALOG.items():
+                  for subcategory, product_names in subcats.items():
+                      for base_name in product_names:
+                          if len(products) >= NUM_PRODUCTS:
+                              break
+                          
+                          variation = random.choice(['', ' 2024', ' Plus', ' Pro', ' Lite', ' XL'])
+                          cost, price = generate_cost_price(category)
+                          
+                          product = {
+                              'product_id': product_id,
+                              'product_sku': generate_sku(category, product_id),
+                              'product_name': f'{base_name}{variation}',
+                              'product_description': f'High-quality {base_name.lower()} in {subcategory.lower()} category',
+                              'category': category,
+                              'subcategory': subcategory,
+                              'brand': random.choice(BRANDS),
+                              'unit_cost': cost,
+                              'unit_price': price,
+                              'weight_kg': round(random.uniform(0.1, 25.0), 3),
+                              'is_active': random.random() > 0.08,
+                              'launch_date': generate_launch_date()
+                          }
+                          products.append(product)
+                          product_id += 1
+          
+          # Insert in batches
+          current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+          
+          for batch_start in range(0, len(products), BATCH_SIZE):
+              batch = products[batch_start:batch_start + BATCH_SIZE]
+              values_list = []
+              
+              for p in batch:
+                  # Escape single quotes
+                  name = p['product_name'].replace("'", "''")
+                  desc = p['product_description'].replace("'", "''")
+                  
+                  values_list.append(
+                      f"({p['product_id']}, '{p['product_sku']}', '{name}', '{desc}', "
+                      f"'{p['category']}', '{p['subcategory']}', '{p['brand']}', "
+                      f"{p['unit_cost']}, {p['unit_price']}, {p['weight_kg']}, "
+                      f"{str(p['is_active']).lower()}, '{p['launch_date']}', "
+                      f"'{current_time}', '{current_time}')"
+                  )
+              
+              insert_sql = f'''
+                  INSERT INTO etl_learning.dim_product
+                  (product_id, product_sku, product_name, product_description,
+                   category, subcategory, brand, unit_cost, unit_price, weight_kg,
+                   is_active, launch_date, created_at, updated_at)
+                  VALUES {', '.join(values_list)}
+              '''
+              
+              context.executeSQL(insert_sql)
+              print(f'Inserted product batch {batch_start // BATCH_SIZE + 1}')
+          
+          print(f'Successfully generated {len(products)} product records')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Generate Stores:
+      type: "python-script"
+      transitions:
+        success:
+        - "Verify Data"
+      parameters:
+        componentName: "Generate Stores"
+        script: |
+          # Store/Location Data Generator
+          
+          import random
+          from datetime import datetime, timedelta
+          
+          # Store locations
+          STORE_LOCATIONS = [
+              ('Manhattan Flagship', 'Retail', 'New York', 'NY', '10001', 'Northeast', 15000),
+              ('LA Downtown', 'Retail', 'Los Angeles', 'CA', '90001', 'West', 12000),
+              ('Chicago Loop', 'Retail', 'Chicago', 'IL', '60601', 'Midwest', 10000),
+              ('Houston Galleria', 'Retail', 'Houston', 'TX', '77001', 'South', 11000),
+              ('Phoenix Central', 'Retail', 'Phoenix', 'AZ', '85001', 'Southwest', 9000),
+              ('Seattle Tech Hub', 'Retail', 'Seattle', 'WA', '98101', 'Northwest', 8500),
+              ('Miami Beach', 'Retail', 'Miami', 'FL', '33101', 'Southeast', 7500),
+              ('Denver Mile High', 'Retail', 'Denver', 'CO', '80201', 'Mountain', 8000),
+              ('East Coast Warehouse', 'Warehouse', 'Newark', 'NJ', '07101', 'Northeast', 50000),
+              ('West Coast Warehouse', 'Warehouse', 'Ontario', 'CA', '91761', 'West', 60000),
+              ('Central Distribution', 'Warehouse', 'Memphis', 'TN', '38101', 'South', 55000),
+              ('Online Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 0),
+              ('Mobile App Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 0),
+              ('Austin Tech', 'Retail', 'Austin', 'TX', '78701', 'South', 7000),
+              ('Boston Harbor', 'Retail', 'Boston', 'MA', '02101', 'Northeast', 6500)
+          ]
+          
+          MANAGER_NAMES = [
+              'John Smith', 'Sarah Johnson', 'Michael Davis', 'Emily Wilson',
+              'David Brown', 'Jennifer Martinez', 'Robert Taylor', 'Lisa Anderson',
+              'James Thomas', 'Michelle Garcia', 'William Lee', 'Jessica White',
+              'Daniel Harris', 'Amanda Clark', 'Christopher Lewis'
+          ]
+          
+          current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+          values_list = []
+          
+          for idx, (name, store_type, city, state, zip_code, region, sqft) in enumerate(STORE_LOCATIONS, 1):
+              store_code = f'STR{idx:03d}'
+              manager = MANAGER_NAMES[idx - 1] if idx <= len(MANAGER_NAMES) else random.choice(MANAGER_NAMES)
+              
+              # Generate random open date
+              start_date = datetime(2010, 1, 1)
+              delta_days = random.randint(0, 4000)
+              open_date = (start_date + timedelta(days=delta_days)).strftime('%Y-%m-%d')
+              
+              address = f'{random.randint(100, 9999)} Commerce {random.choice(["St", "Ave", "Blvd"])}'
+              
+              values_list.append(
+                  f"({idx}, '{store_code}', '{name}', '{store_type}', "
+                  f"'{address}', '{city}', '{state}', '{zip_code}', 'US', '{region}', "
+                  f"'{manager}', '{open_date}', {sqft if sqft > 0 else 'NULL'}, TRUE, "
+                  f"'{current_time}', '{current_time}')"
+              )
+          
+          insert_sql = f'''
+              INSERT INTO etl_learning.dim_store
+              (store_id, store_code, store_name, store_type, address_line1, city, state,
+               postal_code, country, region, manager_name, open_date, square_footage,
+               is_active, created_at, updated_at)
+              VALUES {', '.join(values_list)}
+          '''
+          
+          context.executeSQL(insert_sql)
+          print(f'Successfully generated {len(STORE_LOCATIONS)} store records')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Data:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Verify Data"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify product and store data
+          SELECT 'dim_product' as table_name, COUNT(*) as record_count FROM etl_learning.dim_product
+          UNION ALL
+          SELECT 'dim_store', COUNT(*) FROM etl_learning.dim_store;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    num_products:
+      metadata:
+        type: "TEXT"
+        description: "Number of products to generate"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "500"
+
+design:
+  components:
+    Start:
+      position:
+        x: -400
+        "y": 0
+      tempMetlId: 1
+    Generate Products:
+      position:
+        x: -250
+        "y": 0
+      tempMetlId: 2
+    Generate Stores:
+      position:
+        x: -100
+        "y": 0
+      tempMetlId: 3
+    Verify Data:
+      position:
+        x: 50
+        "y": 0
+      tempMetlId: 4
+    End Success:
+      position:
+        x: 200
+        "y": 0
+      tempMetlId: 5

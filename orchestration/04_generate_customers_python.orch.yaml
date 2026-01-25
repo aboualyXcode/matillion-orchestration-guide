@@ -1,0 +1,317 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Set Configuration"
+      parameters:
+        componentName: "Start"
+    
+    Set Configuration:
+      type: "python-script"
+      transitions:
+        success:
+        - "Check Existing Customers"
+      parameters:
+        componentName: "Set Configuration"
+        script: |
+          # Configuration for customer generation
+          # Adjust these values as needed
+          
+          NUM_CUSTOMERS = 2000  # Number of customers to generate
+          BATCH_SIZE = 500      # Records per INSERT batch
+          
+          print(f'Configuration:')
+          print(f'  - Customers to generate: {NUM_CUSTOMERS}')
+          print(f'  - Batch size: {BATCH_SIZE}')
+          
+          context.updateVariable('num_customers', str(NUM_CUSTOMERS))
+          context.updateVariable('batch_size', str(BATCH_SIZE))
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Existing Customers:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Generate Customer Data"
+      parameters:
+        componentName: "Check Existing Customers"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Get max customer_id to continue from
+          SELECT COALESCE(MAX(customer_id), 0) as max_id FROM etl_learning.dim_customer;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+          - name: "start_id"
+            type: "TEXT"
+            fetchColumn: "max_id"
+    
+    Generate Customer Data:
+      type: "python-script"
+      transitions:
+        success:
+        - "Verify Customer Count"
+      parameters:
+        componentName: "Generate Customer Data"
+        script: |
+          # Python Customer Data Generator
+          # Demonstrates Python Script component for complex data generation
+          
+          import random
+          import string
+          from datetime import datetime, timedelta
+          
+          # Configuration
+          NUM_CUSTOMERS = int(context.getVariable('num_customers'))
+          BATCH_SIZE = int(context.getVariable('batch_size'))
+          START_ID = int(context.getVariable('start_id'))
+          
+          # Reference data for realistic generation
+          FIRST_NAMES = [
+              'James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael',
+              'Linda', 'William', 'Elizabeth', 'David', 'Barbara', 'Richard', 'Susan',
+              'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Christopher', 'Karen', 'Emma',
+              'Oliver', 'Ava', 'Noah', 'Sophia', 'Liam', 'Isabella', 'Mason', 'Mia',
+              'Ethan', 'Charlotte', 'Alexander', 'Amelia', 'Henry', 'Harper', 'Sebastian'
+          ]
+          
+          LAST_NAMES = [
+              'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller',
+              'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez',
+              'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin',
+              'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Clark', 'Lewis',
+              'Robinson', 'Walker', 'Young', 'Allen', 'King', 'Wright', 'Scott'
+          ]
+          
+          CITIES = [
+              ('New York', 'NY', '10001'), ('Los Angeles', 'CA', '90001'),
+              ('Chicago', 'IL', '60601'), ('Houston', 'TX', '77001'),
+              ('Phoenix', 'AZ', '85001'), ('Philadelphia', 'PA', '19101'),
+              ('San Antonio', 'TX', '78201'), ('San Diego', 'CA', '92101'),
+              ('Dallas', 'TX', '75201'), ('Austin', 'TX', '78701'),
+              ('Seattle', 'WA', '98101'), ('Denver', 'CO', '80201'),
+              ('Boston', 'MA', '02101'), ('Atlanta', 'GA', '30301'),
+              ('Miami', 'FL', '33101'), ('Portland', 'OR', '97201')
+          ]
+          
+          SEGMENTS = ['Premium', 'Standard', 'Basic', 'Enterprise', 'Startup']
+          SEGMENT_WEIGHTS = [0.1, 0.4, 0.35, 0.1, 0.05]
+          STREET_TYPES = ['St', 'Ave', 'Blvd', 'Dr', 'Ln', 'Ct', 'Way', 'Rd']
+          STREET_NAMES = ['Main', 'Oak', 'Pine', 'Maple', 'Cedar', 'Elm', 'Park', 'Lake', 'Hill', 'River']
+          
+          def generate_customer_code():
+              return 'CUS' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+          
+          def generate_email(first_name, last_name):
+              domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'company.com', 'email.com']
+              separator = random.choice(['.', '_', ''])
+              number = random.choice(['', str(random.randint(1, 99))])
+              return f'{first_name.lower()}{separator}{last_name.lower()}{number}@{random.choice(domains)}'
+          
+          def generate_phone():
+              return f'+1-{random.randint(200,999)}-{random.randint(200,999)}-{random.randint(1000,9999)}'
+          
+          def generate_address():
+              number = random.randint(100, 9999)
+              street = random.choice(STREET_NAMES)
+              street_type = random.choice(STREET_TYPES)
+              return f'{number} {street} {street_type}'
+          
+          def generate_registration_date():
+              start_date = datetime(2018, 1, 1)
+              end_date = datetime(2024, 12, 31)
+              delta = end_date - start_date
+              random_days = random.randint(0, delta.days)
+              return (start_date + timedelta(days=random_days)).strftime('%Y-%m-%d')
+          
+          def weighted_choice(choices, weights):
+              total = sum(weights)
+              r = random.uniform(0, total)
+              upto = 0
+              for choice, weight in zip(choices, weights):
+                  if upto + weight >= r:
+                      return choice
+                  upto += weight
+              return choices[-1]
+          
+          # Generate customer records
+          print(f'Generating {NUM_CUSTOMERS} customer records...')
+          customers = []
+          
+          for i in range(1, NUM_CUSTOMERS + 1):
+              first_name = random.choice(FIRST_NAMES)
+              last_name = random.choice(LAST_NAMES)
+              city, state, zip_code = random.choice(CITIES)
+              
+              customer = {
+                  'customer_id': START_ID + i,
+                  'customer_code': generate_customer_code(),
+                  'first_name': first_name,
+                  'last_name': last_name,
+                  'email': generate_email(first_name, last_name),
+                  'phone': generate_phone(),
+                  'address_line1': generate_address(),
+                  'city': city,
+                  'state': state,
+                  'postal_code': zip_code,
+                  'country': 'US',
+                  'customer_segment': weighted_choice(SEGMENTS, SEGMENT_WEIGHTS),
+                  'registration_date': generate_registration_date(),
+                  'is_active': random.random() > 0.05  # 95% active
+              }
+              customers.append(customer)
+          
+          # Build INSERT statements in batches
+          current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+          total_inserted = 0
+          
+          for batch_start in range(0, len(customers), BATCH_SIZE):
+              batch = customers[batch_start:batch_start + BATCH_SIZE]
+              values_list = []
+              
+              for c in batch:
+                  # Escape single quotes in text fields
+                  fn = c['first_name'].replace("'", "''")
+                  ln = c['last_name'].replace("'", "''")
+                  addr = c['address_line1'].replace("'", "''")
+                  
+                  values_list.append(
+                      f"({c['customer_id']}, '{c['customer_code']}', '{fn}', "
+                      f"'{ln}', '{c['email']}', '{c['phone']}', "
+                      f"'{addr}', '{c['city']}', '{c['state']}', "
+                      f"'{c['postal_code']}', '{c['country']}', '{c['customer_segment']}', "
+                      f"'{c['registration_date']}', {str(c['is_active']).lower()}, "
+                      f"'{current_time}', '{current_time}')"
+                  )
+              
+              insert_sql = f'''
+                  INSERT INTO etl_learning.dim_customer
+                  (customer_id, customer_code, first_name, last_name, email, phone,
+                   address_line1, city, state, postal_code, country, customer_segment,
+                   registration_date, is_active, created_at, updated_at)
+                  VALUES {', '.join(values_list)}
+              '''
+              
+              context.executeSQL(insert_sql)
+              total_inserted += len(batch)
+              print(f'Inserted batch {batch_start // BATCH_SIZE + 1}: {total_inserted} total records')
+          
+          print(f'Successfully generated {NUM_CUSTOMERS} customer records')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Customer Count:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Completion"
+      parameters:
+        componentName: "Verify Customer Count"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify customer population
+          SELECT 
+              COUNT(*) as total_customers,
+              COUNT(DISTINCT customer_segment) as segments,
+              SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active_customers
+          FROM etl_learning.dim_customer;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Completion:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Completion"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('Customer data generation completed!')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    num_customers:
+      metadata:
+        type: "TEXT"
+        description: "Number of customers to generate"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "2000"
+    batch_size:
+      metadata:
+        type: "TEXT"
+        description: "Batch size for INSERT operations"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "500"
+    start_id:
+      metadata:
+        type: "TEXT"
+        description: "Starting customer ID"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+
+design:
+  components:
+    Start:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 1
+    Set Configuration:
+      position:
+        x: -350
+        "y": 0
+      tempMetlId: 2
+    Check Existing Customers:
+      position:
+        x: -200
+        "y": 0
+      tempMetlId: 3
+    Generate Customer Data:
+      position:
+        x: -50
+        "y": 0
+      tempMetlId: 4
+    Verify Customer Count:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 5
+    Log Completion:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 6
+    End Success:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 7

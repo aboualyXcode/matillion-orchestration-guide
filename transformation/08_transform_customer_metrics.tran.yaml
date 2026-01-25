@@ -1,0 +1,288 @@
+type: "transformation"
+version: "1.0"
+pipeline:
+  components:
+    Sales Input:
+      type: "table-input"
+      transitions:
+        success:
+        - "Join Customer"
+      parameters:
+        componentName: "Sales Input"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "fact_sales"
+        columnNames:
+        - "sale_id"
+        - "date_key"
+        - "customer_id"
+        - "product_id"
+        - "quantity"
+        - "total_amount"
+        - "profit_amount"
+        - "sale_channel"
+    
+    Customer Input:
+      type: "table-input"
+      transitions:
+        success:
+        - "Join Customer"
+      parameters:
+        componentName: "Customer Input"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "dim_customer"
+        columnNames:
+        - "customer_id"
+        - "customer_code"
+        - "first_name"
+        - "last_name"
+        - "customer_segment"
+        - "city"
+        - "state"
+        - "registration_date"
+    
+    Product Input:
+      type: "table-input"
+      transitions:
+        success:
+        - "Join Product"
+      parameters:
+        componentName: "Product Input"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "dim_product"
+        columnNames:
+        - "product_id"
+        - "category"
+        - "subcategory"
+        - "brand"
+    
+    Join Customer:
+      type: "join"
+      transitions:
+        success:
+        - "Join Product"
+      parameters:
+        componentName: "Join Customer"
+        mainTable: "Sales Input"
+        mainTableAlias: "s"
+        joins:
+        - table: "Customer Input"
+          alias: "c"
+          joinType: "Inner"
+          joinConditions:
+          - leftColumn: "customer_id"
+            rightColumn: "customer_id"
+        columnMappings:
+        - columnName: "s.sale_id"
+          alias: "sale_id"
+        - columnName: "s.date_key"
+          alias: "date_key"
+        - columnName: "s.customer_id"
+          alias: "customer_id"
+        - columnName: "s.product_id"
+          alias: "product_id"
+        - columnName: "s.quantity"
+          alias: "quantity"
+        - columnName: "s.total_amount"
+          alias: "total_amount"
+        - columnName: "s.profit_amount"
+          alias: "profit_amount"
+        - columnName: "s.sale_channel"
+          alias: "sale_channel"
+        - columnName: "c.customer_code"
+          alias: "customer_code"
+        - columnName: "c.first_name"
+          alias: "first_name"
+        - columnName: "c.last_name"
+          alias: "last_name"
+        - columnName: "c.customer_segment"
+          alias: "customer_segment"
+        - columnName: "c.city"
+          alias: "city"
+        - columnName: "c.state"
+          alias: "state"
+        - columnName: "c.registration_date"
+          alias: "registration_date"
+    
+    Join Product:
+      type: "join"
+      transitions:
+        success:
+        - "Aggregate Customer Metrics"
+      parameters:
+        componentName: "Join Product"
+        mainTable: "Join Customer"
+        mainTableAlias: "jc"
+        joins:
+        - table: "Product Input"
+          alias: "p"
+          joinType: "Inner"
+          joinConditions:
+          - leftColumn: "product_id"
+            rightColumn: "product_id"
+        columnMappings:
+        - columnName: "jc.sale_id"
+          alias: "sale_id"
+        - columnName: "jc.date_key"
+          alias: "date_key"
+        - columnName: "jc.customer_id"
+          alias: "customer_id"
+        - columnName: "jc.quantity"
+          alias: "quantity"
+        - columnName: "jc.total_amount"
+          alias: "total_amount"
+        - columnName: "jc.profit_amount"
+          alias: "profit_amount"
+        - columnName: "jc.sale_channel"
+          alias: "sale_channel"
+        - columnName: "jc.customer_code"
+          alias: "customer_code"
+        - columnName: "jc.first_name"
+          alias: "first_name"
+        - columnName: "jc.last_name"
+          alias: "last_name"
+        - columnName: "jc.customer_segment"
+          alias: "customer_segment"
+        - columnName: "jc.city"
+          alias: "city"
+        - columnName: "jc.state"
+          alias: "state"
+        - columnName: "jc.registration_date"
+          alias: "registration_date"
+        - columnName: "p.category"
+          alias: "product_category"
+        - columnName: "p.brand"
+          alias: "product_brand"
+    
+    Aggregate Customer Metrics:
+      type: "aggregate"
+      transitions:
+        success:
+        - "Rank Customers"
+      parameters:
+        componentName: "Aggregate Customer Metrics"
+        groupings:
+        - columnName: "customer_id"
+        - columnName: "customer_code"
+        - columnName: "first_name"
+        - columnName: "last_name"
+        - columnName: "customer_segment"
+        - columnName: "city"
+        - columnName: "state"
+        - columnName: "registration_date"
+        aggregations:
+        - columnName: "sale_id"
+          function: "CountDistinct"
+          alias: "total_orders"
+        - columnName: "quantity"
+          function: "Sum"
+          alias: "total_items_purchased"
+        - columnName: "total_amount"
+          function: "Sum"
+          alias: "total_revenue"
+        - columnName: "profit_amount"
+          function: "Sum"
+          alias: "total_profit"
+        - columnName: "total_amount"
+          function: "Average"
+          alias: "avg_order_value"
+        - columnName: "date_key"
+          function: "Min"
+          alias: "first_purchase_date"
+        - columnName: "date_key"
+          function: "Max"
+          alias: "last_purchase_date"
+        - columnName: "product_category"
+          function: "CountDistinct"
+          alias: "categories_purchased"
+    
+    Rank Customers:
+      type: "rank"
+      transitions:
+        success:
+        - "Calculate Additional Metrics"
+      parameters:
+        componentName: "Rank Customers"
+        partitionColumns: []
+        orderColumns:
+        - columnName: "total_revenue"
+          direction: "Descending"
+        rankFunctions:
+        - functionName: "Rank"
+          alias: "revenue_rank"
+        - functionName: "PercentRank"
+          alias: "revenue_percentile"
+    
+    Calculate Additional Metrics:
+      type: "calculator"
+      transitions:
+        success:
+        - "Rewrite Customer Metrics"
+      parameters:
+        componentName: "Calculate Additional Metrics"
+        calculations:
+        - columnName: "profit_margin_pct"
+          expression: "ROUND((total_profit / NULLIF(total_revenue, 0)) * 100, 2)"
+        - columnName: "customer_tenure_days"
+          expression: "DATEDIFF(CURRENT_DATE(), registration_date)"
+        - columnName: "customer_tier"
+          expression: "CASE WHEN revenue_percentile >= 0.9 THEN 'Platinum' WHEN revenue_percentile >= 0.7 THEN 'Gold' WHEN revenue_percentile >= 0.5 THEN 'Silver' ELSE 'Bronze' END"
+    
+    Rewrite Customer Metrics:
+      type: "rewrite-table"
+      parameters:
+        componentName: "Rewrite Customer Metrics"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "agg_customer_metrics"
+        writeMode: "Overwrite"
+
+design:
+  components:
+    Sales Input:
+      position:
+        x: -500
+        "y": -100
+      tempMetlId: 1
+    Customer Input:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 2
+    Product Input:
+      position:
+        x: -500
+        "y": 100
+      tempMetlId: 3
+    Join Customer:
+      position:
+        x: -300
+        "y": -50
+      tempMetlId: 4
+    Join Product:
+      position:
+        x: -100
+        "y": 0
+      tempMetlId: 5
+    Aggregate Customer Metrics:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 6
+    Rank Customers:
+      position:
+        x: 300
+        "y": 0
+      tempMetlId: 7
+    Calculate Additional Metrics:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 8
+    Rewrite Customer Metrics:
+      position:
+        x: 700
+        "y": 0
+      tempMetlId: 9

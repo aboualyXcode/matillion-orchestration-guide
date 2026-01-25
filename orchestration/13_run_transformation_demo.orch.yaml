@@ -1,0 +1,237 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Log Start"
+      parameters:
+        componentName: "Start"
+    
+    Log Start:
+      type: "python-script"
+      transitions:
+        success:
+        - "Check Prerequisites"
+      parameters:
+        componentName: "Log Start"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('RUN TRANSFORMATION DEMONSTRATION')
+          print('=' * 60)
+          print('This job demonstrates calling transformation jobs')
+          print('from within an orchestration job.')
+          print(f'Started: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Prerequisites:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Run Daily Summary Transform"
+      parameters:
+        componentName: "Check Prerequisites"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify fact_sales has data before running transformations
+          SELECT 
+              CASE WHEN COUNT(*) > 0 THEN 'READY' ELSE 'NOT_READY' END as status,
+              COUNT(*) as record_count
+          FROM etl_learning.fact_sales;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Run Daily Summary Transform:
+      type: "run-transformation"
+      transitions:
+        success:
+        - "Run Customer Metrics Transform"
+        failure:
+        - "Handle Transform Failure"
+      parameters:
+        componentName: "Run Daily Summary Transform"
+        transformationJob: "transformation/07_transform_daily_summary"
+    
+    Run Customer Metrics Transform:
+      type: "run-transformation"
+      transitions:
+        success:
+        - "Verify Outputs"
+        failure:
+        - "Handle Transform Failure"
+      parameters:
+        componentName: "Run Customer Metrics Transform"
+        transformationJob: "transformation/08_transform_customer_metrics"
+    
+    Handle Transform Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Failure"
+      parameters:
+        componentName: "Handle Transform Failure"
+        script: |
+          print('ERROR: Transformation job failed!')
+          print('Check transformation job logs for details.')
+          context.updateVariable('error_status', 'FAILED')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Failure:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Failure"
+      parameters:
+        componentName: "Log Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          INSERT INTO etl_learning.error_log
+          (pipeline_name, component_name, error_message, error_timestamp)
+          VALUES (
+              '13_run_transformation_demo',
+              'Run Transformation',
+              'One or more transformation jobs failed',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Outputs:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Success"
+      parameters:
+        componentName: "Verify Outputs"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify transformation outputs were created
+          SELECT 
+              'agg_daily_sales_summary' as table_name,
+              COUNT(*) as record_count
+          FROM etl_learning.agg_daily_sales_summary
+          UNION ALL
+          SELECT 
+              'agg_customer_metrics',
+              COUNT(*)
+          FROM etl_learning.agg_customer_metrics;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Success:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Success"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('TRANSFORMATION JOBS COMPLETED SUCCESSFULLY')
+          print('=' * 60)
+          print('Created/updated tables:')
+          print('  - etl_learning.agg_daily_sales_summary')
+          print('  - etl_learning.agg_customer_metrics')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+    
+    End Failure:
+      type: "end-failure"
+      parameters:
+        componentName: "End Failure"
+
+  variables:
+    error_status:
+      metadata:
+        type: "TEXT"
+        description: "Error status flag"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "OK"
+
+design:
+  components:
+    Start:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 1
+    Log Start:
+      position:
+        x: -350
+        "y": 0
+      tempMetlId: 2
+    Check Prerequisites:
+      position:
+        x: -200
+        "y": 0
+      tempMetlId: 3
+    Run Daily Summary Transform:
+      position:
+        x: -50
+        "y": 0
+      tempMetlId: 4
+    Run Customer Metrics Transform:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 5
+    Handle Transform Failure:
+      position:
+        x: 100
+        "y": 100
+      tempMetlId: 6
+    Log Failure:
+      position:
+        x: 250
+        "y": 100
+      tempMetlId: 7
+    Verify Outputs:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 8
+    Log Success:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 9
+    End Success:
+      position:
+        x: 550
+        "y": 0
+      tempMetlId: 10
+    End Failure:
+      position:
+        x: 400
+        "y": 100
+      tempMetlId: 11

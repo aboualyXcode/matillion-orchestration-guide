@@ -1,0 +1,279 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Initialize Error Handling Demo"
+      parameters:
+        componentName: "Start"
+    
+    Initialize Error Handling Demo:
+      type: "python-script"
+      transitions:
+        success:
+        - "Task A - Data Validation"
+      parameters:
+        componentName: "Initialize Error Handling Demo"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('ERROR HANDLING PATTERN DEMONSTRATION')
+          print('=' * 60)
+          print('This job demonstrates:')
+          print('  - Parallel task execution with AND component')
+          print('  - Error handling with failure paths')
+          print('  - Logging errors to error table')
+          print(f'Started: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Task A - Data Validation:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "AND Gate"
+        failure:
+        - "Handle Task A Failure"
+      parameters:
+        componentName: "Task A - Data Validation"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Task A: Validate data exists in dimension tables
+          SELECT 
+              CASE WHEN customer_count > 0 AND product_count > 0 THEN 'VALID' ELSE 'INVALID' END as validation_status
+          FROM (
+              SELECT 
+                  (SELECT COUNT(*) FROM etl_learning.dim_customer) as customer_count,
+                  (SELECT COUNT(*) FROM etl_learning.dim_product) as product_count
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Task B - Record Count Check:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "AND Gate"
+        failure:
+        - "Handle Task B Failure"
+      parameters:
+        componentName: "Task B - Record Count Check"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Task B: Check fact table has records
+          SELECT COUNT(*) as sales_count FROM etl_learning.fact_sales;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Handle Task A Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error"
+      parameters:
+        componentName: "Handle Task A Failure"
+        script: |
+          # Log Task A failure
+          error_message = 'Task A - Data Validation failed: Dimension tables may be empty'
+          context.updateVariable('error_component', 'Task A - Data Validation')
+          context.updateVariable('error_message', error_message)
+          print(f'ERROR: {error_message}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Handle Task B Failure:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Error"
+      parameters:
+        componentName: "Handle Task B Failure"
+        script: |
+          # Log Task B failure
+          error_message = 'Task B - Record Count Check failed: Unable to query fact_sales'
+          context.updateVariable('error_component', 'Task B - Record Count Check')
+          context.updateVariable('error_message', error_message)
+          print(f'ERROR: {error_message}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Error:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Failure"
+      parameters:
+        componentName: "Log Error"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        - "error_component"
+        - "error_message"
+        enableVariableResolution: "Yes"
+        sqlScript: |
+          -- Log error to error_log table
+          INSERT INTO etl_learning.error_log
+          (pipeline_name, component_name, error_message, error_timestamp)
+          VALUES (
+              '12_error_handling_pattern',
+              '${error_component}',
+              '${error_message}',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    AND Gate:
+      type: "and"
+      transitions:
+        unconditional:
+        - "All Tasks Succeeded"
+      parameters:
+        componentName: "AND Gate"
+    
+    All Tasks Succeeded:
+      type: "python-script"
+      transitions:
+        success:
+        - "Log Success"
+      parameters:
+        componentName: "All Tasks Succeeded"
+        script: |
+          from datetime import datetime
+          
+          print('All parallel tasks completed successfully!')
+          print('AND gate passed - all inputs received')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Success:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Success"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Log successful completion
+          INSERT INTO etl_learning.pipeline_log
+          (pipeline_name, step_name, status, message, execution_timestamp)
+          VALUES (
+              '12_error_handling_pattern',
+              'Error Handling Demo',
+              'SUCCESS',
+              'All validation tasks completed successfully',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+    
+    End Failure:
+      type: "end-failure"
+      parameters:
+        componentName: "End Failure"
+
+  variables:
+    error_component:
+      metadata:
+        type: "TEXT"
+        description: "Component that caused error"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+    error_message:
+      metadata:
+        type: "TEXT"
+        description: "Error message"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: ""
+
+design:
+  components:
+    Start:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 1
+    Initialize Error Handling Demo:
+      position:
+        x: -350
+        "y": 0
+      tempMetlId: 2
+    Task A - Data Validation:
+      position:
+        x: -200
+        "y": -50
+      tempMetlId: 3
+    Task B - Record Count Check:
+      position:
+        x: -200
+        "y": 50
+      tempMetlId: 4
+    Handle Task A Failure:
+      position:
+        x: -50
+        "y": -100
+      tempMetlId: 5
+    Handle Task B Failure:
+      position:
+        x: -50
+        "y": 100
+      tempMetlId: 6
+    Log Error:
+      position:
+        x: 100
+        "y": 100
+      tempMetlId: 7
+    AND Gate:
+      position:
+        x: -50
+        "y": 0
+      tempMetlId: 8
+    All Tasks Succeeded:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 9
+    Log Success:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 10
+    End Success:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 11
+    End Failure:
+      position:
+        x: 250
+        "y": 100
+      tempMetlId: 12

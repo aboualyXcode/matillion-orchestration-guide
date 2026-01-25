@@ -1,0 +1,192 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Get Categories to Process"
+      parameters:
+        componentName: "Start"
+    
+    Get Categories to Process:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Grid Iterator"
+      parameters:
+        componentName: "Get Categories to Process"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Get distinct product categories to iterate over
+          SELECT DISTINCT category 
+          FROM etl_learning.dim_product 
+          WHERE is_active = TRUE
+          ORDER BY category;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+        updateGridVariables:
+          - name: "categories_grid"
+            fetchColumn:
+              - "category"
+    
+    Grid Iterator:
+      type: "grid-iterator"
+      transitions:
+        success:
+        - "Process Category"
+      parameters:
+        componentName: "Grid Iterator"
+        gridVariable: "categories_grid"
+        concurrency: "Sequential"
+        variablesToIterate:
+        - gridColumn: "category"
+          variableName: "current_category"
+        loggingDetail: "Yes"
+        failImmediately: "No"
+        breakConditionEnabled: "No"
+    
+    Process Category:
+      type: "sql-executor"
+      parameters:
+        componentName: "Process Category"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        - "current_category"
+        enableVariableResolution: "Yes"
+        sqlScript: |
+          -- Create category-specific sales summary
+          -- This demonstrates dynamic iteration based on data
+          
+          CREATE OR REPLACE TABLE etl_learning.tmp_category_${current_category}_summary AS
+          SELECT 
+              p.category,
+              p.subcategory,
+              COUNT(DISTINCT f.sale_id) as transactions,
+              SUM(f.quantity) as total_units,
+              SUM(f.total_amount) as total_revenue,
+              SUM(f.profit_amount) as total_profit,
+              AVG(f.total_amount) as avg_order_value
+          FROM etl_learning.fact_sales f
+          JOIN etl_learning.dim_product p ON f.product_id = p.product_id
+          WHERE p.category = '${current_category}'
+          GROUP BY p.category, p.subcategory;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Consolidate Results:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Completion"
+      parameters:
+        componentName: "Consolidate Results"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Log the grid iteration completion
+          INSERT INTO etl_learning.pipeline_log
+          (pipeline_name, step_name, status, message, execution_timestamp)
+          VALUES (
+              '11_iterator_grid_demo',
+              'Grid Iterator Complete',
+              'SUCCESS',
+              'Processed all product categories dynamically',
+              current_timestamp()
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Completion:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Completion"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('GRID ITERATOR DEMONSTRATION COMPLETE')
+          print('=' * 60)
+          print('Successfully processed all product categories')
+          print('Category summaries created in temporary tables')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    current_category:
+      metadata:
+        type: "TEXT"
+        description: "Current category being processed"
+        scope: "COPIED"
+        visibility: "PRIVATE"
+      defaultValue: "Electronics"
+  
+  gridVariables:
+    categories_grid:
+      metadata:
+        type: "GRID"
+        description: "Grid of product categories to process"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      columns:
+        - name: "category"
+          type: "TEXT"
+      defaultValue: []
+
+design:
+  components:
+    Start:
+      position:
+        x: -400
+        "y": 0
+      tempMetlId: 1
+    Get Categories to Process:
+      position:
+        x: -250
+        "y": 0
+      tempMetlId: 2
+    Grid Iterator:
+      position:
+        x: -100
+        "y": 0
+      tempMetlId: 3
+    Process Category:
+      position:
+        x: 50
+        "y": 0
+      tempMetlId: 4
+    Consolidate Results:
+      position:
+        x: 200
+        "y": 0
+      tempMetlId: 5
+    Log Completion:
+      position:
+        x: 350
+        "y": 0
+      tempMetlId: 6
+    End Success:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 7

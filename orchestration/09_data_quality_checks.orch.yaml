@@ -1,0 +1,446 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Initialize Quality Check"
+      parameters:
+        componentName: "Start"
+    
+    Initialize Quality Check:
+      type: "python-script"
+      transitions:
+        success:
+        - "Check Null Values"
+      parameters:
+        componentName: "Initialize Quality Check"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('DATA QUALITY CHECK FRAMEWORK')
+          print(f'Started: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          
+          # Initialize counters
+          context.updateVariable('total_checks', '0')
+          context.updateVariable('passed_checks', '0')
+          context.updateVariable('failed_checks', '0')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Null Values:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Email Format"
+      parameters:
+        componentName: "Check Null Values"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 1: NULL validation for required fields in dim_customer
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'dim_customer',
+              'NULL_CHECK',
+              'Required fields cannot be NULL (customer_id, customer_code, first_name, last_name, country)',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(*) FROM etl_learning.dim_customer),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM etl_learning.dim_customer), 0), 2),
+              'Fields checked: customer_id, customer_code, first_name, last_name, country'
+          FROM etl_learning.dim_customer
+          WHERE customer_id IS NULL
+             OR customer_code IS NULL
+             OR first_name IS NULL
+             OR last_name IS NULL
+             OR country IS NULL;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Email Format:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Referential Integrity Customers"
+      parameters:
+        componentName: "Check Email Format"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 2: Email format validation
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'dim_customer',
+              'FORMAT_CHECK',
+              'Email must contain @ symbol',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(*) FROM etl_learning.dim_customer WHERE email IS NOT NULL),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM etl_learning.dim_customer WHERE email IS NOT NULL), 0), 2),
+              'Invalid email format detected'
+          FROM etl_learning.dim_customer
+          WHERE email IS NOT NULL AND email NOT LIKE '%@%.%';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Referential Integrity Customers:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Referential Integrity Products"
+      parameters:
+        componentName: "Check Referential Integrity Customers"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 3: Referential integrity - customers in fact table
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'fact_sales',
+              'REFERENTIAL_INTEGRITY',
+              'All customer_ids must exist in dim_customer',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(DISTINCT customer_id) FROM etl_learning.fact_sales),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(DISTINCT customer_id) FROM etl_learning.fact_sales), 0), 2),
+              'Orphan customer_ids found'
+          FROM (
+              SELECT DISTINCT customer_id FROM etl_learning.fact_sales
+              EXCEPT
+              SELECT customer_id FROM etl_learning.dim_customer
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Referential Integrity Products:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Duplicate Keys"
+      parameters:
+        componentName: "Check Referential Integrity Products"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 4: Referential integrity - products in fact table
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'fact_sales',
+              'REFERENTIAL_INTEGRITY',
+              'All product_ids must exist in dim_product',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(DISTINCT product_id) FROM etl_learning.fact_sales),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(DISTINCT product_id) FROM etl_learning.fact_sales), 0), 2),
+              'Orphan product_ids found'
+          FROM (
+              SELECT DISTINCT product_id FROM etl_learning.fact_sales
+              EXCEPT
+              SELECT product_id FROM etl_learning.dim_product
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Duplicate Keys:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Range Values"
+      parameters:
+        componentName: "Check Duplicate Keys"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 5: Duplicate check on primary keys
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'dim_customer',
+              'DUPLICATE_CHECK',
+              'customer_id must be unique',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(*) FROM etl_learning.dim_customer),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM etl_learning.dim_customer), 0), 2),
+              'Duplicate customer_ids found'
+          FROM (
+              SELECT customer_id, COUNT(*) as cnt
+              FROM etl_learning.dim_customer
+              GROUP BY customer_id
+              HAVING COUNT(*) > 1
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Check Range Values:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Generate Summary"
+      parameters:
+        componentName: "Check Range Values"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check 6: Range validation - prices must be positive
+          INSERT INTO etl_learning.data_quality_results
+          (check_timestamp, table_name, check_type, check_description, status,
+           records_checked, records_failed, failure_percentage, details)
+          SELECT
+              current_timestamp(),
+              'dim_product',
+              'RANGE_CHECK',
+              'unit_price and unit_cost must be positive',
+              CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+              (SELECT COUNT(*) FROM etl_learning.dim_product),
+              COUNT(*),
+              ROUND(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM etl_learning.dim_product), 0), 2),
+              'Negative or zero prices found'
+          FROM etl_learning.dim_product
+          WHERE unit_price <= 0 OR unit_cost <= 0;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Generate Summary:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Evaluate Results"
+      parameters:
+        componentName: "Generate Summary"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Generate quality check summary
+          SELECT 
+              COUNT(*) as total_checks,
+              SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) as passed_checks,
+              SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) as failed_checks,
+              ROUND(SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as pass_rate
+          FROM etl_learning.data_quality_results
+          WHERE check_timestamp >= current_date();
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+          - name: "total_checks"
+            type: "TEXT"
+            fetchColumn: "total_checks"
+          - name: "passed_checks"
+            type: "TEXT"
+            fetchColumn: "passed_checks"
+          - name: "failed_checks"
+            type: "TEXT"
+            fetchColumn: "failed_checks"
+    
+    Evaluate Results:
+      type: "if"
+      transitions:
+        "true":
+        - "All Checks Passed"
+        "false":
+        - "Some Checks Failed"
+      parameters:
+        componentName: "Evaluate Results"
+        mode: "Advanced"
+        condition1: "\"${failed_checks}\" == \"0\""
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    All Checks Passed:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "All Checks Passed"
+        script: |
+          from datetime import datetime
+          
+          total = context.getVariable('total_checks')
+          passed = context.getVariable('passed_checks')
+          
+          print('=' * 60)
+          print('DATA QUALITY CHECK RESULTS: ALL PASSED')
+          print('=' * 60)
+          print(f'Total checks executed: {total}')
+          print(f'Passed: {passed}')
+          print(f'Failed: 0')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Some Checks Failed:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Failure"
+      parameters:
+        componentName: "Some Checks Failed"
+        script: |
+          from datetime import datetime
+          
+          total = context.getVariable('total_checks')
+          passed = context.getVariable('passed_checks')
+          failed = context.getVariable('failed_checks')
+          
+          print('=' * 60)
+          print('DATA QUALITY CHECK RESULTS: FAILURES DETECTED')
+          print('=' * 60)
+          print(f'Total checks executed: {total}')
+          print(f'Passed: {passed}')
+          print(f'Failed: {failed}')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          print('Review etl_learning.data_quality_results for details')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+    
+    End Failure:
+      type: "end-failure"
+      parameters:
+        componentName: "End Failure"
+
+  variables:
+    total_checks:
+      metadata:
+        type: "TEXT"
+        description: "Total quality checks run"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+    passed_checks:
+      metadata:
+        type: "TEXT"
+        description: "Number of passed checks"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+    failed_checks:
+      metadata:
+        type: "TEXT"
+        description: "Number of failed checks"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+
+design:
+  components:
+    Start:
+      position:
+        x: -700
+        "y": 0
+      tempMetlId: 1
+    Initialize Quality Check:
+      position:
+        x: -550
+        "y": 0
+      tempMetlId: 2
+    Check Null Values:
+      position:
+        x: -400
+        "y": 0
+      tempMetlId: 3
+    Check Email Format:
+      position:
+        x: -250
+        "y": 0
+      tempMetlId: 4
+    Check Referential Integrity Customers:
+      position:
+        x: -100
+        "y": 0
+      tempMetlId: 5
+    Check Referential Integrity Products:
+      position:
+        x: 50
+        "y": 0
+      tempMetlId: 6
+    Check Duplicate Keys:
+      position:
+        x: 200
+        "y": 0
+      tempMetlId: 7
+    Check Range Values:
+      position:
+        x: 350
+        "y": 0
+      tempMetlId: 8
+    Generate Summary:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 9
+    Evaluate Results:
+      position:
+        x: 650
+        "y": 0
+      tempMetlId: 10
+    All Checks Passed:
+      position:
+        x: 800
+        "y": -50
+      tempMetlId: 11
+    Some Checks Failed:
+      position:
+        x: 800
+        "y": 50
+      tempMetlId: 12
+    End Success:
+      position:
+        x: 950
+        "y": -50
+      tempMetlId: 13
+    End Failure:
+      position:
+        x: 950
+        "y": 50
+      tempMetlId: 14

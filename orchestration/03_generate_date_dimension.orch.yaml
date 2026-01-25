@@ -1,0 +1,242 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Check If Date Table Empty"
+      parameters:
+        componentName: "Start"
+    
+    Check If Date Table Empty:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Store Row Count"
+      parameters:
+        componentName: "Check If Date Table Empty"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Check current row count in date dimension
+          SELECT COUNT(*) as row_count FROM etl_learning.dim_date;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+          - name: "date_row_count"
+            type: "TEXT"
+            fetchColumn: "row_count"
+    
+    Store Row Count:
+      type: "python-script"
+      transitions:
+        success:
+        - "If Date Table Empty"
+      parameters:
+        componentName: "Store Row Count"
+        script: |
+          # Get the row count from the previous step
+          row_count = context.getVariable('date_row_count')
+          print(f'Current date dimension row count: {row_count}')
+          
+          # Store for conditional logic
+          context.updateVariable('should_populate', 'true' if row_count == '0' else 'false')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    If Date Table Empty:
+      type: "if"
+      transitions:
+        "true":
+        - "Generate Date Data"
+        "false":
+        - "Skip Population"
+      parameters:
+        componentName: "If Date Table Empty"
+        mode: "Advanced"
+        condition1: "\"${should_populate}\" == \"true\""
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Generate Date Data:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Date Population"
+      parameters:
+        componentName: "Generate Date Data"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Generate Date Dimension Data (2020-2030)
+          -- Uses Databricks sequence generation for 11 years of dates
+          
+          INSERT INTO etl_learning.dim_date
+          WITH date_sequence AS (
+              SELECT explode(sequence(
+                  to_date('2020-01-01'),
+                  to_date('2030-12-31'),
+                  interval 1 day
+              )) AS full_date
+          )
+          SELECT
+              CAST(date_format(full_date, 'yyyyMMdd') AS INT) AS date_key,
+              full_date,
+              dayofweek(full_date) AS day_of_week,
+              date_format(full_date, 'EEEE') AS day_name,
+              dayofmonth(full_date) AS day_of_month,
+              dayofyear(full_date) AS day_of_year,
+              weekofyear(full_date) AS week_of_year,
+              month(full_date) AS month_number,
+              date_format(full_date, 'MMMM') AS month_name,
+              quarter(full_date) AS quarter,
+              year(full_date) AS year,
+              CASE WHEN dayofweek(full_date) IN (1, 7) THEN TRUE ELSE FALSE END AS is_weekend,
+              FALSE AS is_holiday,
+              CASE WHEN month(full_date) >= 7 
+                  THEN year(full_date) + 1 
+                  ELSE year(full_date) END AS fiscal_year,
+              CASE
+                  WHEN month(full_date) IN (7,8,9) THEN 1
+                  WHEN month(full_date) IN (10,11,12) THEN 2
+                  WHEN month(full_date) IN (1,2,3) THEN 3
+                  ELSE 4
+              END AS fiscal_quarter
+          FROM date_sequence;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Skip Population:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Skip Population"
+        script: |
+          print('Date dimension already populated. Skipping data generation.')
+          print('To regenerate, truncate the table first.')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Date Population:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Success"
+      parameters:
+        componentName: "Verify Date Population"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify date dimension population
+          SELECT 
+              MIN(full_date) as min_date,
+              MAX(full_date) as max_date,
+              COUNT(*) as total_dates,
+              COUNT(DISTINCT year) as years_covered
+          FROM etl_learning.dim_date;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Success:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Success"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('Date dimension successfully populated!')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          print('Date range: 2020-01-01 to 2030-12-31')
+          print('Total dates generated: 4,018 records')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    date_row_count:
+      metadata:
+        type: "TEXT"
+        description: "Current row count in date dimension"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+    should_populate:
+      metadata:
+        type: "TEXT"
+        description: "Flag to determine if population is needed"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "true"
+
+design:
+  components:
+    Start:
+      position:
+        x: -600
+        "y": 0
+      tempMetlId: 1
+    Check If Date Table Empty:
+      position:
+        x: -450
+        "y": 0
+      tempMetlId: 2
+    Store Row Count:
+      position:
+        x: -300
+        "y": 0
+      tempMetlId: 3
+    If Date Table Empty:
+      position:
+        x: -150
+        "y": 0
+      tempMetlId: 4
+    Generate Date Data:
+      position:
+        x: 0
+        "y": -50
+      tempMetlId: 5
+    Skip Population:
+      position:
+        x: 0
+        "y": 50
+      tempMetlId: 6
+    Verify Date Population:
+      position:
+        x: 150
+        "y": -50
+      tempMetlId: 7
+    Log Success:
+      position:
+        x: 300
+        "y": -50
+      tempMetlId: 8
+    End Success:
+      position:
+        x: 450
+        "y": 0
+      tempMetlId: 9

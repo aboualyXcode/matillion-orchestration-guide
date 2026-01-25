@@ -1,0 +1,223 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Log Pipeline Start"
+      parameters:
+        componentName: "Start"
+    
+    Log Pipeline Start:
+      type: "python-script"
+      transitions:
+        success:
+        - "Create Schema"
+      parameters:
+        componentName: "Log Pipeline Start"
+        script: |
+          # Pipeline initialization logging
+          from datetime import datetime
+          
+          pipeline_name = '00_setup_schema'
+          start_time = datetime.now()
+          
+          print('=' * 60)
+          print(f'Pipeline: {pipeline_name}')
+          print(f'Started: {start_time.strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          print('Purpose: Create foundational schema for ETL training')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Schema:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Pipeline Log Table"
+      parameters:
+        componentName: "Create Schema"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Create dedicated schema for ETL learning project
+          CREATE SCHEMA IF NOT EXISTS etl_learning
+          COMMENT 'Schema for Matillion ETL learning exercises';
+          
+          -- Verify schema creation
+          DESCRIBE SCHEMA etl_learning;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Pipeline Log Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Error Log Table"
+      parameters:
+        componentName: "Create Pipeline Log Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Create pipeline execution log table
+          CREATE TABLE IF NOT EXISTS etl_learning.pipeline_log (
+              log_id BIGINT GENERATED ALWAYS AS IDENTITY,
+              pipeline_name STRING NOT NULL,
+              step_name STRING NOT NULL,
+              status STRING NOT NULL,
+              message STRING,
+              records_processed BIGINT,
+              execution_timestamp TIMESTAMP NOT NULL,
+              duration_seconds DECIMAL(10,2)
+          )
+          USING DELTA
+          COMMENT 'Pipeline execution log for monitoring and debugging';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Error Log Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Data Quality Results Table"
+      parameters:
+        componentName: "Create Error Log Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Create error log table for error tracking
+          CREATE TABLE IF NOT EXISTS etl_learning.error_log (
+              error_id BIGINT GENERATED ALWAYS AS IDENTITY,
+              pipeline_name STRING NOT NULL,
+              component_name STRING NOT NULL,
+              error_message STRING NOT NULL,
+              error_timestamp TIMESTAMP NOT NULL,
+              stack_trace STRING
+          )
+          USING DELTA
+          COMMENT 'Error log table for tracking pipeline failures';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Data Quality Results Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Success"
+      parameters:
+        componentName: "Create Data Quality Results Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Create data quality check results table
+          CREATE TABLE IF NOT EXISTS etl_learning.data_quality_results (
+              check_id BIGINT GENERATED ALWAYS AS IDENTITY,
+              check_timestamp TIMESTAMP NOT NULL,
+              table_name STRING NOT NULL,
+              check_type STRING NOT NULL,
+              check_description STRING NOT NULL,
+              status STRING NOT NULL,
+              records_checked BIGINT,
+              records_failed BIGINT,
+              failure_percentage DECIMAL(5,2),
+              details STRING
+          )
+          USING DELTA
+          COMMENT 'Data quality check results for validation tracking';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Success:
+      type: "python-script"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Success"
+        script: |
+          from datetime import datetime
+          
+          print('=' * 60)
+          print('Schema setup completed successfully!')
+          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+          print('=' * 60)
+          print('Created:')
+          print('  - Schema: etl_learning')
+          print('  - Table: etl_learning.pipeline_log')
+          print('  - Table: etl_learning.error_log')
+          print('  - Table: etl_learning.data_quality_results')
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    pipeline_name:
+      metadata:
+        type: "TEXT"
+        description: "Name of the current pipeline"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "00_setup_schema"
+
+design:
+  components:
+    Start:
+      position:
+        x: -600
+        "y": 0
+      tempMetlId: 1
+    Log Pipeline Start:
+      position:
+        x: -450
+        "y": 0
+      tempMetlId: 2
+    Create Schema:
+      position:
+        x: -300
+        "y": 0
+      tempMetlId: 3
+    Create Pipeline Log Table:
+      position:
+        x: -150
+        "y": 0
+      tempMetlId: 4
+    Create Error Log Table:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 5
+    Create Data Quality Results Table:
+      position:
+        x: 150
+        "y": 0
+      tempMetlId: 6
+    Log Success:
+      position:
+        x: 300
+        "y": 0
+      tempMetlId: 7
+    End Success:
+      position:
+        x: 450
+        "y": 0
+      tempMetlId: 8
