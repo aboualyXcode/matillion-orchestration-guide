@@ -1,0 +1,196 @@
+type: "transformation"
+version: "1.0"
+pipeline:
+  components:
+    Sales Fact Input:
+      type: "table-input"
+      transitions:
+        success:
+        - "Join Date Dimension"
+      parameters:
+        componentName: "Sales Fact Input"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "fact_sales"
+        columnNames:
+        - "sale_id"
+        - "date_key"
+        - "customer_id"
+        - "product_id"
+        - "store_id"
+        - "quantity"
+        - "unit_price"
+        - "discount_percent"
+        - "tax_amount"
+        - "total_amount"
+        - "cost_amount"
+        - "profit_amount"
+        - "sale_channel"
+        - "year_month"
+    
+    Date Dimension Input:
+      type: "table-input"
+      transitions:
+        success:
+        - "Join Date Dimension"
+      parameters:
+        componentName: "Date Dimension Input"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "dim_date"
+        columnNames:
+        - "date_key"
+        - "full_date"
+        - "day_name"
+        - "month_name"
+        - "quarter"
+        - "year"
+        - "is_weekend"
+    
+    Join Date Dimension:
+      type: "join"
+      transitions:
+        success:
+        - "Calculate Metrics"
+      parameters:
+        componentName: "Join Date Dimension"
+        mainTable: "Sales Fact Input"
+        mainTableAlias: "f"
+        joins:
+        - table: "Date Dimension Input"
+          alias: "d"
+          joinType: "Inner"
+          joinConditions:
+          - leftColumn: "date_key"
+            rightColumn: "date_key"
+        columnMappings:
+        - columnName: "f.sale_id"
+          alias: "sale_id"
+        - columnName: "f.customer_id"
+          alias: "customer_id"
+        - columnName: "f.product_id"
+          alias: "product_id"
+        - columnName: "f.store_id"
+          alias: "store_id"
+        - columnName: "f.quantity"
+          alias: "quantity"
+        - columnName: "f.unit_price"
+          alias: "unit_price"
+        - columnName: "f.discount_percent"
+          alias: "discount_percent"
+        - columnName: "f.total_amount"
+          alias: "total_amount"
+        - columnName: "f.profit_amount"
+          alias: "profit_amount"
+        - columnName: "f.sale_channel"
+          alias: "sale_channel"
+        - columnName: "d.date_key"
+          alias: "date_key"
+        - columnName: "d.full_date"
+          alias: "full_date"
+        - columnName: "d.day_name"
+          alias: "day_name"
+        - columnName: "d.month_name"
+          alias: "month_name"
+        - columnName: "d.quarter"
+          alias: "quarter"
+        - columnName: "d.year"
+          alias: "year"
+        - columnName: "d.is_weekend"
+          alias: "is_weekend"
+    
+    Calculate Metrics:
+      type: "calculator"
+      transitions:
+        success:
+        - "Aggregate Daily"
+      parameters:
+        componentName: "Calculate Metrics"
+        calculations:
+        - columnName: "gross_revenue"
+          expression: "quantity * unit_price"
+        - columnName: "net_revenue"
+          expression: "quantity * unit_price * (1 - discount_percent/100)"
+        - columnName: "discount_amount"
+          expression: "quantity * unit_price * (discount_percent/100)"
+    
+    Aggregate Daily:
+      type: "aggregate"
+      transitions:
+        success:
+        - "Rewrite Daily Summary"
+      parameters:
+        componentName: "Aggregate Daily"
+        groupings:
+        - columnName: "date_key"
+        - columnName: "full_date"
+        - columnName: "day_name"
+        - columnName: "month_name"
+        - columnName: "quarter"
+        - columnName: "year"
+        - columnName: "is_weekend"
+        - columnName: "sale_channel"
+        aggregations:
+        - columnName: "sale_id"
+          function: "CountDistinct"
+          alias: "transaction_count"
+        - columnName: "quantity"
+          function: "Sum"
+          alias: "total_quantity"
+        - columnName: "gross_revenue"
+          function: "Sum"
+          alias: "gross_revenue"
+        - columnName: "net_revenue"
+          function: "Sum"
+          alias: "net_revenue"
+        - columnName: "discount_amount"
+          function: "Sum"
+          alias: "total_discount"
+        - columnName: "profit_amount"
+          function: "Sum"
+          alias: "total_profit"
+        - columnName: "total_amount"
+          function: "Average"
+          alias: "avg_order_value"
+    
+    Rewrite Daily Summary:
+      type: "rewrite-table"
+      parameters:
+        componentName: "Rewrite Daily Summary"
+        database: "[Environment Default]"
+        schema: "etl_learning"
+        targetTable: "agg_daily_sales_summary"
+        writeMode: "Overwrite"
+
+design:
+  components:
+    Sales Fact Input:
+      position:
+        x: -400
+        "y": -50
+      tempMetlId: 1
+    Date Dimension Input:
+      position:
+        x: -400
+        "y": 50
+      tempMetlId: 2
+    Join Date Dimension:
+      position:
+        x: -200
+        "y": 0
+      tempMetlId: 3
+    Calculate Metrics:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 4
+    Aggregate Daily:
+      position:
+        x: 200
+        "y": 0
+      tempMetlId: 5
+    Rewrite Daily Summary:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 6
