@@ -1,0 +1,188 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Create Sales Fact Table"
+      parameters:
+        componentName: "Start"
+    
+    Create Sales Fact Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Inventory Fact Table"
+      parameters:
+        componentName: "Create Sales Fact Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Sales Fact Table (Partitioned by Year-Month)
+          CREATE TABLE IF NOT EXISTS etl_learning.fact_sales (
+              sale_id BIGINT NOT NULL COMMENT 'Unique sale transaction ID',
+              date_key INT NOT NULL COMMENT 'FK to dim_date',
+              customer_id BIGINT NOT NULL COMMENT 'FK to dim_customer',
+              product_id BIGINT NOT NULL COMMENT 'FK to dim_product',
+              store_id BIGINT COMMENT 'FK to dim_store',
+              order_number STRING NOT NULL COMMENT 'Order reference number',
+              quantity INT NOT NULL COMMENT 'Quantity sold',
+              unit_price DECIMAL(10,2) NOT NULL COMMENT 'Price per unit at sale',
+              discount_percent DECIMAL(5,2) DEFAULT 0 COMMENT 'Discount percentage',
+              tax_amount DECIMAL(10,2) NOT NULL COMMENT 'Tax amount',
+              total_amount DECIMAL(12,2) NOT NULL COMMENT 'Total sale amount',
+              cost_amount DECIMAL(10,2) NOT NULL COMMENT 'Total cost amount',
+              profit_amount DECIMAL(10,2) COMMENT 'Profit amount',
+              sale_channel STRING COMMENT 'Sales channel',
+              created_at TIMESTAMP NOT NULL COMMENT 'Record creation timestamp',
+              year_month STRING NOT NULL COMMENT 'Partition column YYYY-MM',
+              CONSTRAINT pk_sales PRIMARY KEY (sale_id)
+          )
+          USING DELTA
+          PARTITIONED BY (year_month)
+          COMMENT 'Sales fact table partitioned by year-month'
+          TBLPROPERTIES (
+              'delta.autoOptimize.optimizeWrite' = 'true',
+              'delta.autoOptimize.autoCompact' = 'true'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Inventory Fact Table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Create Staging Table for Updates"
+      parameters:
+        componentName: "Create Inventory Fact Table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Inventory Snapshot Fact Table
+          CREATE TABLE IF NOT EXISTS etl_learning.fact_inventory (
+              inventory_id BIGINT NOT NULL COMMENT 'Unique inventory record ID',
+              date_key INT NOT NULL COMMENT 'FK to dim_date',
+              product_id BIGINT NOT NULL COMMENT 'FK to dim_product',
+              store_id BIGINT NOT NULL COMMENT 'FK to dim_store',
+              quantity_on_hand INT NOT NULL COMMENT 'Current quantity in stock',
+              quantity_reserved INT DEFAULT 0 COMMENT 'Reserved quantity',
+              quantity_available INT COMMENT 'Available quantity',
+              reorder_point INT COMMENT 'Reorder threshold',
+              reorder_quantity INT COMMENT 'Quantity to reorder',
+              last_restock_date DATE COMMENT 'Last restock date',
+              inventory_value DECIMAL(12,2) COMMENT 'Total inventory value',
+              snapshot_timestamp TIMESTAMP NOT NULL COMMENT 'Snapshot timestamp',
+              CONSTRAINT pk_inventory PRIMARY KEY (inventory_id)
+          )
+          USING DELTA
+          COMMENT 'Daily inventory snapshot fact table';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Create Staging Table for Updates:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Fact Tables"
+      parameters:
+        componentName: "Create Staging Table for Updates"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Staging table for customer updates (used for MERGE operations)
+          CREATE TABLE IF NOT EXISTS etl_learning.stg_customer_updates (
+              customer_id BIGINT NOT NULL,
+              customer_code STRING NOT NULL,
+              first_name STRING NOT NULL,
+              last_name STRING NOT NULL,
+              email STRING,
+              phone STRING,
+              address_line1 STRING,
+              city STRING,
+              state STRING,
+              postal_code STRING,
+              country STRING NOT NULL,
+              customer_segment STRING,
+              is_active BOOLEAN
+          )
+          USING DELTA
+          COMMENT 'Staging table for customer dimension updates';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Fact Tables:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Verify Fact Tables"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify all fact and staging tables were created
+          SHOW TABLES IN etl_learning LIKE 'fact_*';
+          SHOW TABLES IN etl_learning LIKE 'stg_*';
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    schema_name:
+      metadata:
+        type: "TEXT"
+        description: "Target schema name"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "etl_learning"
+
+design:
+  components:
+    Start:
+      position:
+        x: -400
+        "y": 0
+      tempMetlId: 1
+    Create Sales Fact Table:
+      position:
+        x: -250
+        "y": 0
+      tempMetlId: 2
+    Create Inventory Fact Table:
+      position:
+        x: -100
+        "y": 0
+      tempMetlId: 3
+    Create Staging Table for Updates:
+      position:
+        x: 50
+        "y": 0
+      tempMetlId: 4
+    Verify Fact Tables:
+      position:
+        x: 200
+        "y": 0
+      tempMetlId: 5
+    End Success:
+      position:
+        x: 350
+        "y": 0
+      tempMetlId: 6
