@@ -71,9 +71,7 @@ pipeline:
         - table: "Customer Input"
           alias: "c"
           joinType: "Inner"
-          joinConditions:
-          - leftColumn: "customer_id"
-            rightColumn: "customer_id"
+          joinExpression: "s.customer_id = c.customer_id"
         columnMappings:
         - columnName: "s.sale_id"
           alias: "sale_id"
@@ -119,9 +117,7 @@ pipeline:
         - table: "Product Input"
           alias: "p"
           joinType: "Inner"
-          joinConditions:
-          - leftColumn: "product_id"
-            rightColumn: "product_id"
+          joinExpression: "jc.product_id = p.product_id"
         columnMappings:
         - columnName: "jc.sale_id"
           alias: "sale_id"

@@ -60,9 +60,7 @@ pipeline:
         - table: "Date Dimension Input"
           alias: "d"
           joinType: "Inner"
-          joinConditions:
-          - leftColumn: "date_key"
-            rightColumn: "date_key"
+          joinExpression: "f.date_key = d.date_key"
         columnMappings:
         - columnName: "f.sale_id"
           alias: "sale_id"

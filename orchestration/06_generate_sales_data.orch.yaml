@@ -11,18 +11,23 @@ pipeline:
         componentName: "Start"
     
     Set Parameters:
-      type: "python-script"
+      type: "sql-executor"
       transitions:
         success:
         - "Check Prerequisites"
       parameters:
         componentName: "Set Parameters"
-        script: |
-          # Configuration for sales data generation
-          print('Sales Data Generation Configuration:')
-          print('  - Target records: 50,000')
-          print('  - Date range: 2023-01-01 to 2024-12-31')
-          print('  - Method: SQL-based generation with CTEs')
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Configuration for sales data generation
+          SELECT 
+              50000 AS target_records,
+              '2023-01-01' AS start_date,
+              '2024-12-31' AS end_date,
+              'SQL-based generation with CTEs' AS method;
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
@@ -68,16 +73,23 @@ pipeline:
         updateScalarVariables:
     
     Prerequisites Failed:
-      type: "python-script"
+      type: "sql-executor"
       transitions:
         success:
         - "End Failure"
       parameters:
         componentName: "Prerequisites Failed"
-        script: |
-          print('ERROR: Prerequisites not met!')
-          print('Please ensure dimension tables are populated before generating sales data.')
-          print('Required tables: dim_date, dim_customer, dim_product, dim_store')
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Log prerequisite failure
+          SELECT 
+              'ERROR: Prerequisites not met!' AS error_message,
+              'Please ensure dimension tables are populated before generating sales data.' AS details,
+              'Required tables: dim_date, dim_customer, dim_product, dim_store' AS required_tables,
+              current_timestamp() AS error_time;
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
@@ -303,21 +315,26 @@ pipeline:
         updateScalarVariables:
     
     Log Completion:
-      type: "python-script"
+      type: "sql-executor"
       transitions:
         success:
         - "End Success"
       parameters:
         componentName: "Log Completion"
-        script: |
-          from datetime import datetime
-          
-          print('=' * 60)
-          print('Sales data generation completed!')
-          print(f'Completed: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
-          print('=' * 60)
-          print('Generated 50,000 sales transactions')
-          print('Date range: 2023-01-01 to 2024-12-31')
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Log completion status
+          SELECT 
+              'Sales data generation completed!' AS status,
+              current_timestamp() AS completed_at,
+              (SELECT COUNT(*) FROM etl_learning.fact_sales) AS total_transactions,
+              (SELECT MIN(d.full_date) FROM etl_learning.fact_sales f 
+               JOIN etl_learning.dim_date d ON f.date_key = d.date_key) AS earliest_date,
+              (SELECT MAX(d.full_date) FROM etl_learning.fact_sales f 
+               JOIN etl_learning.dim_date d ON f.date_key = d.date_key) AS latest_date;
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
