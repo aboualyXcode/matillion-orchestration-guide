@@ -11,221 +11,227 @@ pipeline:
         componentName: "Start"
     
     Generate Products:
-      type: "python-script"
+      type: "sql-executor"
       transitions:
         success:
         - "Generate Stores"
       parameters:
         componentName: "Generate Products"
-        script: |
-          # Python Product Data Generator
-          # Demonstrates generating hierarchical product data
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- SQL-based Product Data Generator
+          -- Generates realistic product catalog with hierarchical categories
           
-          import random
-          from datetime import datetime, timedelta
-          
-          NUM_PRODUCTS = 500
-          BATCH_SIZE = 100
-          
-          # Product catalog structure - realistic category hierarchy
-          PRODUCT_CATALOG = {
-              'Electronics': {
-                  'Smartphones': ['iPhone Pro', 'Galaxy Ultra', 'Pixel Plus', 'OnePlus Nord'],
-                  'Laptops': ['MacBook Air', 'ThinkPad X1', 'XPS 15', 'Surface Pro'],
-                  'Tablets': ['iPad Pro', 'Galaxy Tab', 'Surface Go', 'Fire HD'],
-                  'Audio': ['AirPods', 'WH-1000XM5', 'Galaxy Buds', 'Bose QC'],
-                  'Wearables': ['Apple Watch', 'Galaxy Watch', 'Fitbit Sense', 'Garmin Venu']
-              },
-              'Clothing': {
-                  'Shirts': ['Oxford Shirt', 'Polo Classic', 'V-Neck Tee', 'Henley Long'],
-                  'Pants': ['Slim Chinos', 'Classic Jeans', 'Cargo Pants', 'Dress Slacks'],
-                  'Outerwear': ['Wool Blazer', 'Puffer Jacket', 'Trench Coat', 'Fleece Zip'],
-                  'Footwear': ['Running Shoes', 'Loafers', 'Boots', 'Sneakers']
-              },
-              'Home': {
-                  'Furniture': ['Ergonomic Chair', 'Standing Desk', 'Bookshelf Oak', 'Sofa Sectional'],
-                  'Kitchen': ['Coffee Maker', 'Blender Pro', 'Air Fryer XL', 'Instant Pot'],
-                  'Decor': ['Table Lamp', 'Wall Art Set', 'Area Rug', 'Plant Pot'],
-                  'Bedding': ['Memory Foam Pillow', 'Duvet Cover', 'Sheet Set', 'Mattress Topper']
-              },
-              'Sports': {
-                  'Fitness': ['Yoga Mat', 'Dumbbells Set', 'Resistance Bands', 'Foam Roller'],
-                  'Outdoor': ['Hiking Boots', 'Camping Tent', 'Backpack 40L', 'Trekking Poles'],
-                  'Team Sports': ['Basketball', 'Soccer Ball', 'Tennis Racket', 'Golf Clubs']
-              },
-              'Office': {
-                  'Supplies': ['Notebook Set', 'Pen Pack', 'Desk Organizer', 'File Folders'],
-                  'Technology': ['Wireless Mouse', 'Mechanical Keyboard', 'Monitor Stand', 'Webcam HD'],
-                  'Furniture': ['Office Chair', 'L-Desk', 'Filing Cabinet', 'Whiteboard']
-              }
-          }
-          
-          BRANDS = ['TechPro', 'StyleCo', 'HomeEssentials', 'FitLife', 'Luxura',
-                   'ValueMax', 'PremiumPlus', 'EcoChoice', 'ProSeries', 'BasicLine']
-          
-          def generate_sku(category, index):
-              prefix = category[:3].upper()
-              return f'{prefix}-{random.randint(100,999)}-{index:04d}'
-          
-          def generate_cost_price(category):
-              base_ranges = {
-                  'Electronics': (50, 500),
-                  'Clothing': (10, 100),
-                  'Home': (20, 300),
-                  'Sports': (15, 150),
-                  'Office': (5, 100)
-              }
-              low, high = base_ranges.get(category, (20, 200))
-              cost = round(random.uniform(low, high), 2)
-              margin = random.uniform(1.3, 2.5)  # 30% to 150% markup
-              price = round(cost * margin, 2)
-              return cost, price
-          
-          def generate_launch_date():
-              start_date = datetime(2019, 1, 1)
-              end_date = datetime(2024, 6, 30)
-              delta = end_date - start_date
-              random_days = random.randint(0, delta.days)
-              return (start_date + timedelta(days=random_days)).strftime('%Y-%m-%d')
-          
-          # Generate products
-          print(f'Generating {NUM_PRODUCTS} product records...')
-          products = []
-          product_id = 1
-          
-          while len(products) < NUM_PRODUCTS:
-              for category, subcats in PRODUCT_CATALOG.items():
-                  for subcategory, product_names in subcats.items():
-                      for base_name in product_names:
-                          if len(products) >= NUM_PRODUCTS:
-                              break
-                          
-                          variation = random.choice(['', ' 2024', ' Plus', ' Pro', ' Lite', ' XL'])
-                          cost, price = generate_cost_price(category)
-                          
-                          product = {
-                              'product_id': product_id,
-                              'product_sku': generate_sku(category, product_id),
-                              'product_name': f'{base_name}{variation}',
-                              'product_description': f'High-quality {base_name.lower()} in {subcategory.lower()} category',
-                              'category': category,
-                              'subcategory': subcategory,
-                              'brand': random.choice(BRANDS),
-                              'unit_cost': cost,
-                              'unit_price': price,
-                              'weight_kg': round(random.uniform(0.1, 25.0), 3),
-                              'is_active': random.random() > 0.08,
-                              'launch_date': generate_launch_date()
-                          }
-                          products.append(product)
-                          product_id += 1
-          
-          # Insert in batches
-          current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-          
-          for batch_start in range(0, len(products), BATCH_SIZE):
-              batch = products[batch_start:batch_start + BATCH_SIZE]
-              values_list = []
-              
-              for p in batch:
-                  # Escape single quotes
-                  name = p['product_name'].replace("'", "''")
-                  desc = p['product_description'].replace("'", "''")
-                  
-                  values_list.append(
-                      f"({p['product_id']}, '{p['product_sku']}', '{name}', '{desc}', "
-                      f"'{p['category']}', '{p['subcategory']}', '{p['brand']}', "
-                      f"{p['unit_cost']}, {p['unit_price']}, {p['weight_kg']}, "
-                      f"{str(p['is_active']).lower()}, '{p['launch_date']}', "
-                      f"'{current_time}', '{current_time}')"
-                  )
-              
-              insert_sql = f'''
-                  INSERT INTO etl_learning.dim_product
-                  (product_id, product_sku, product_name, product_description,
-                   category, subcategory, brand, unit_cost, unit_price, weight_kg,
-                   is_active, launch_date, created_at, updated_at)
-                  VALUES {', '.join(values_list)}
-              '''
-              
-              context.executeSQL(insert_sql)
-              print(f'Inserted product batch {batch_start // BATCH_SIZE + 1}')
-          
-          print(f'Successfully generated {len(products)} product records')
+          INSERT INTO etl_learning.dim_product
+          WITH 
+          -- Product catalog structure using VALUES
+          product_catalog AS (
+              SELECT * FROM (VALUES
+                  ('Electronics', 'Smartphones', 'iPhone Pro'),
+                  ('Electronics', 'Smartphones', 'Galaxy Ultra'),
+                  ('Electronics', 'Smartphones', 'Pixel Plus'),
+                  ('Electronics', 'Smartphones', 'OnePlus Nord'),
+                  ('Electronics', 'Laptops', 'MacBook Air'),
+                  ('Electronics', 'Laptops', 'ThinkPad X1'),
+                  ('Electronics', 'Laptops', 'XPS 15'),
+                  ('Electronics', 'Laptops', 'Surface Pro'),
+                  ('Electronics', 'Tablets', 'iPad Pro'),
+                  ('Electronics', 'Tablets', 'Galaxy Tab'),
+                  ('Electronics', 'Tablets', 'Surface Go'),
+                  ('Electronics', 'Tablets', 'Fire HD'),
+                  ('Electronics', 'Audio', 'AirPods'),
+                  ('Electronics', 'Audio', 'WH-1000XM5'),
+                  ('Electronics', 'Audio', 'Galaxy Buds'),
+                  ('Electronics', 'Audio', 'Bose QC'),
+                  ('Electronics', 'Wearables', 'Apple Watch'),
+                  ('Electronics', 'Wearables', 'Galaxy Watch'),
+                  ('Electronics', 'Wearables', 'Fitbit Sense'),
+                  ('Electronics', 'Wearables', 'Garmin Venu'),
+                  ('Clothing', 'Shirts', 'Oxford Shirt'),
+                  ('Clothing', 'Shirts', 'Polo Classic'),
+                  ('Clothing', 'Shirts', 'V-Neck Tee'),
+                  ('Clothing', 'Shirts', 'Henley Long'),
+                  ('Clothing', 'Pants', 'Slim Chinos'),
+                  ('Clothing', 'Pants', 'Classic Jeans'),
+                  ('Clothing', 'Pants', 'Cargo Pants'),
+                  ('Clothing', 'Pants', 'Dress Slacks'),
+                  ('Clothing', 'Outerwear', 'Wool Blazer'),
+                  ('Clothing', 'Outerwear', 'Puffer Jacket'),
+                  ('Clothing', 'Outerwear', 'Trench Coat'),
+                  ('Clothing', 'Outerwear', 'Fleece Zip'),
+                  ('Clothing', 'Footwear', 'Running Shoes'),
+                  ('Clothing', 'Footwear', 'Loafers'),
+                  ('Clothing', 'Footwear', 'Boots'),
+                  ('Clothing', 'Footwear', 'Sneakers'),
+                  ('Home', 'Furniture', 'Ergonomic Chair'),
+                  ('Home', 'Furniture', 'Standing Desk'),
+                  ('Home', 'Furniture', 'Bookshelf Oak'),
+                  ('Home', 'Furniture', 'Sofa Sectional'),
+                  ('Home', 'Kitchen', 'Coffee Maker'),
+                  ('Home', 'Kitchen', 'Blender Pro'),
+                  ('Home', 'Kitchen', 'Air Fryer XL'),
+                  ('Home', 'Kitchen', 'Instant Pot'),
+                  ('Home', 'Decor', 'Table Lamp'),
+                  ('Home', 'Decor', 'Wall Art Set'),
+                  ('Home', 'Decor', 'Area Rug'),
+                  ('Home', 'Decor', 'Plant Pot'),
+                  ('Home', 'Bedding', 'Memory Foam Pillow'),
+                  ('Home', 'Bedding', 'Duvet Cover'),
+                  ('Home', 'Bedding', 'Sheet Set'),
+                  ('Home', 'Bedding', 'Mattress Topper'),
+                  ('Sports', 'Fitness', 'Yoga Mat'),
+                  ('Sports', 'Fitness', 'Dumbbells Set'),
+                  ('Sports', 'Fitness', 'Resistance Bands'),
+                  ('Sports', 'Fitness', 'Foam Roller'),
+                  ('Sports', 'Outdoor', 'Hiking Boots'),
+                  ('Sports', 'Outdoor', 'Camping Tent'),
+                  ('Sports', 'Outdoor', 'Backpack 40L'),
+                  ('Sports', 'Outdoor', 'Trekking Poles'),
+                  ('Sports', 'Team Sports', 'Basketball'),
+                  ('Sports', 'Team Sports', 'Soccer Ball'),
+                  ('Sports', 'Team Sports', 'Tennis Racket'),
+                  ('Sports', 'Team Sports', 'Golf Clubs'),
+                  ('Office', 'Supplies', 'Notebook Set'),
+                  ('Office', 'Supplies', 'Pen Pack'),
+                  ('Office', 'Supplies', 'Desk Organizer'),
+                  ('Office', 'Supplies', 'File Folders'),
+                  ('Office', 'Technology', 'Wireless Mouse'),
+                  ('Office', 'Technology', 'Mechanical Keyboard'),
+                  ('Office', 'Technology', 'Monitor Stand'),
+                  ('Office', 'Technology', 'Webcam HD'),
+                  ('Office', 'Furniture', 'Office Chair'),
+                  ('Office', 'Furniture', 'L-Desk'),
+                  ('Office', 'Furniture', 'Filing Cabinet'),
+                  ('Office', 'Furniture', 'Whiteboard')
+              ) AS t(category, subcategory, product_name)
+          ),
+          brands AS (
+              SELECT explode(array(
+                  'TechPro', 'StyleCo', 'HomeEssentials', 'FitLife', 'Luxura',
+                  'ValueMax', 'PremiumPlus', 'EcoChoice', 'ProSeries', 'BasicLine'
+              )) AS brand
+          ),
+          variations AS (
+              SELECT explode(array('', ' 2024', ' Plus', ' Pro', ' Lite', ' XL')) AS variation
+          ),
+          -- Generate product combinations
+          product_base AS (
+              SELECT 
+                  ROW_NUMBER() OVER (ORDER BY p.category, p.subcategory, p.product_name, v.variation) AS product_id,
+                  p.category,
+                  p.subcategory,
+                  CONCAT(p.product_name, v.variation) AS product_name,
+                  p.product_name AS base_name
+              FROM product_catalog p
+              CROSS JOIN variations v
+              WHERE v.variation = '' OR rand() > 0.7
+          ),
+          -- Limit to 500 products
+          limited_products AS (
+              SELECT * FROM product_base
+              WHERE product_id <= 500
+          )
+          SELECT 
+              product_id,
+              CONCAT(UPPER(SUBSTR(category, 1, 3)), '-', 
+                     CAST(100 + FLOOR(rand(product_id) * 900) AS INT), '-',
+                     LPAD(CAST(product_id AS STRING), 4, '0')) AS product_sku,
+              product_name,
+              CONCAT('High-quality ', LOWER(base_name), ' in ', LOWER(subcategory), ' category') AS product_description,
+              category,
+              subcategory,
+              (SELECT brand FROM brands ORDER BY rand(product_id) LIMIT 1) AS brand,
+              -- Cost based on category
+              ROUND(
+                  CASE category
+                      WHEN 'Electronics' THEN 50 + rand(product_id + 1000) * 450
+                      WHEN 'Clothing' THEN 10 + rand(product_id + 1000) * 90
+                      WHEN 'Home' THEN 20 + rand(product_id + 1000) * 280
+                      WHEN 'Sports' THEN 15 + rand(product_id + 1000) * 135
+                      WHEN 'Office' THEN 5 + rand(product_id + 1000) * 95
+                      ELSE 20 + rand(product_id + 1000) * 180
+                  END, 2) AS unit_cost,
+              -- Price with 30-150% markup
+              ROUND(
+                  CASE category
+                      WHEN 'Electronics' THEN (50 + rand(product_id + 1000) * 450) * (1.3 + rand(product_id + 2000) * 1.2)
+                      WHEN 'Clothing' THEN (10 + rand(product_id + 1000) * 90) * (1.3 + rand(product_id + 2000) * 1.2)
+                      WHEN 'Home' THEN (20 + rand(product_id + 1000) * 280) * (1.3 + rand(product_id + 2000) * 1.2)
+                      WHEN 'Sports' THEN (15 + rand(product_id + 1000) * 135) * (1.3 + rand(product_id + 2000) * 1.2)
+                      WHEN 'Office' THEN (5 + rand(product_id + 1000) * 95) * (1.3 + rand(product_id + 2000) * 1.2)
+                      ELSE (20 + rand(product_id + 1000) * 180) * (1.3 + rand(product_id + 2000) * 1.2)
+                  END, 2) AS unit_price,
+              ROUND(0.1 + rand(product_id + 3000) * 24.9, 3) AS weight_kg,
+              rand(product_id + 4000) > 0.08 AS is_active,
+              date_add('2019-01-01', CAST(rand(product_id + 5000) * 2007 AS INT)) AS launch_date,
+              current_timestamp() AS created_at,
+              current_timestamp() AS updated_at
+          FROM limited_products;
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
     
     Generate Stores:
-      type: "python-script"
+      type: "sql-executor"
       transitions:
         success:
         - "Verify Data"
       parameters:
         componentName: "Generate Stores"
-        script: |
-          # Store/Location Data Generator
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- SQL-based Store Data Generator
+          -- Generates store/location reference data
           
-          import random
-          from datetime import datetime, timedelta
-          
-          # Store locations
-          STORE_LOCATIONS = [
-              ('Manhattan Flagship', 'Retail', 'New York', 'NY', '10001', 'Northeast', 15000),
-              ('LA Downtown', 'Retail', 'Los Angeles', 'CA', '90001', 'West', 12000),
-              ('Chicago Loop', 'Retail', 'Chicago', 'IL', '60601', 'Midwest', 10000),
-              ('Houston Galleria', 'Retail', 'Houston', 'TX', '77001', 'South', 11000),
-              ('Phoenix Central', 'Retail', 'Phoenix', 'AZ', '85001', 'Southwest', 9000),
-              ('Seattle Tech Hub', 'Retail', 'Seattle', 'WA', '98101', 'Northwest', 8500),
-              ('Miami Beach', 'Retail', 'Miami', 'FL', '33101', 'Southeast', 7500),
-              ('Denver Mile High', 'Retail', 'Denver', 'CO', '80201', 'Mountain', 8000),
-              ('East Coast Warehouse', 'Warehouse', 'Newark', 'NJ', '07101', 'Northeast', 50000),
-              ('West Coast Warehouse', 'Warehouse', 'Ontario', 'CA', '91761', 'West', 60000),
-              ('Central Distribution', 'Warehouse', 'Memphis', 'TN', '38101', 'South', 55000),
-              ('Online Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 0),
-              ('Mobile App Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 0),
-              ('Austin Tech', 'Retail', 'Austin', 'TX', '78701', 'South', 7000),
-              ('Boston Harbor', 'Retail', 'Boston', 'MA', '02101', 'Northeast', 6500)
-          ]
-          
-          MANAGER_NAMES = [
-              'John Smith', 'Sarah Johnson', 'Michael Davis', 'Emily Wilson',
-              'David Brown', 'Jennifer Martinez', 'Robert Taylor', 'Lisa Anderson',
-              'James Thomas', 'Michelle Garcia', 'William Lee', 'Jessica White',
-              'Daniel Harris', 'Amanda Clark', 'Christopher Lewis'
-          ]
-          
-          current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-          values_list = []
-          
-          for idx, (name, store_type, city, state, zip_code, region, sqft) in enumerate(STORE_LOCATIONS, 1):
-              store_code = f'STR{idx:03d}'
-              manager = MANAGER_NAMES[idx - 1] if idx <= len(MANAGER_NAMES) else random.choice(MANAGER_NAMES)
-              
-              # Generate random open date
-              start_date = datetime(2010, 1, 1)
-              delta_days = random.randint(0, 4000)
-              open_date = (start_date + timedelta(days=delta_days)).strftime('%Y-%m-%d')
-              
-              address = f'{random.randint(100, 9999)} Commerce {random.choice(["St", "Ave", "Blvd"])}'
-              
-              values_list.append(
-                  f"({idx}, '{store_code}', '{name}', '{store_type}', "
-                  f"'{address}', '{city}', '{state}', '{zip_code}', 'US', '{region}', "
-                  f"'{manager}', '{open_date}', {sqft if sqft > 0 else 'NULL'}, TRUE, "
-                  f"'{current_time}', '{current_time}')"
-              )
-          
-          insert_sql = f'''
-              INSERT INTO etl_learning.dim_store
-              (store_id, store_code, store_name, store_type, address_line1, city, state,
-               postal_code, country, region, manager_name, open_date, square_footage,
-               is_active, created_at, updated_at)
-              VALUES {', '.join(values_list)}
-          '''
-          
-          context.executeSQL(insert_sql)
-          print(f'Successfully generated {len(STORE_LOCATIONS)} store records')
+          INSERT INTO etl_learning.dim_store
+          WITH store_data AS (
+              SELECT * FROM (VALUES
+                  (1, 'STR001', 'Manhattan Flagship', 'Retail', 'New York', 'NY', '10001', 'Northeast', 'John Smith', 15000),
+                  (2, 'STR002', 'LA Downtown', 'Retail', 'Los Angeles', 'CA', '90001', 'West', 'Sarah Johnson', 12000),
+                  (3, 'STR003', 'Chicago Loop', 'Retail', 'Chicago', 'IL', '60601', 'Midwest', 'Michael Davis', 10000),
+                  (4, 'STR004', 'Houston Galleria', 'Retail', 'Houston', 'TX', '77001', 'South', 'Emily Wilson', 11000),
+                  (5, 'STR005', 'Phoenix Central', 'Retail', 'Phoenix', 'AZ', '85001', 'Southwest', 'David Brown', 9000),
+                  (6, 'STR006', 'Seattle Tech Hub', 'Retail', 'Seattle', 'WA', '98101', 'Northwest', 'Jennifer Martinez', 8500),
+                  (7, 'STR007', 'Miami Beach', 'Retail', 'Miami', 'FL', '33101', 'Southeast', 'Robert Taylor', 7500),
+                  (8, 'STR008', 'Denver Mile High', 'Retail', 'Denver', 'CO', '80201', 'Mountain', 'Lisa Anderson', 8000),
+                  (9, 'STR009', 'East Coast Warehouse', 'Warehouse', 'Newark', 'NJ', '07101', 'Northeast', 'James Thomas', 50000),
+                  (10, 'STR010', 'West Coast Warehouse', 'Warehouse', 'Ontario', 'CA', '91761', 'West', 'Michelle Garcia', 60000),
+                  (11, 'STR011', 'Central Distribution', 'Warehouse', 'Memphis', 'TN', '38101', 'South', 'William Lee', 55000),
+                  (12, 'STR012', 'Online Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 'Jessica White', NULL),
+                  (13, 'STR013', 'Mobile App Store', 'Online', 'San Francisco', 'CA', '94101', 'West', 'Daniel Harris', NULL),
+                  (14, 'STR014', 'Austin Tech', 'Retail', 'Austin', 'TX', '78701', 'South', 'Amanda Clark', 7000),
+                  (15, 'STR015', 'Boston Harbor', 'Retail', 'Boston', 'MA', '02101', 'Northeast', 'Christopher Lewis', 6500)
+              ) AS t(store_id, store_code, store_name, store_type, city, state, postal_code, region, manager_name, square_footage)
+          )
+          SELECT 
+              store_id,
+              store_code,
+              store_name,
+              store_type,
+              CONCAT(CAST(100 + FLOOR(rand(store_id) * 9900) AS INT), ' Commerce ',
+                     CASE CAST(FLOOR(rand(store_id + 100) * 3) AS INT)
+                         WHEN 0 THEN 'St'
+                         WHEN 1 THEN 'Ave'
+                         ELSE 'Blvd'
+                     END) AS address_line1,
+              city,
+              state,
+              postal_code,
+              'US' AS country,
+              region,
+              manager_name,
+              date_add('2010-01-01', CAST(rand(store_id + 200) * 4000 AS INT)) AS open_date,
+              square_footage,
+              TRUE AS is_active,
+              current_timestamp() AS created_at,
+              current_timestamp() AS updated_at
+          FROM store_data;
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:

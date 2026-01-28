@@ -1,0 +1,317 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Set Configuration"
+      parameters:
+        componentName: "Start"
+    
+    Set Configuration:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Check Existing Customers"
+      parameters:
+        componentName: "Set Configuration"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Configuration for customer generation
+          -- Returns configuration values as query result
+          SELECT 
+              2000 AS num_customers,
+              500 AS batch_size,
+              'Customer generation configured' AS status;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+          - name: "num_customers"
+            type: "TEXT"
+            fetchColumn: "num_customers"
+          - name: "batch_size"
+            type: "TEXT"
+            fetchColumn: "batch_size"
+    
+    Check Existing Customers:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Generate Customer Data"
+      parameters:
+        componentName: "Check Existing Customers"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Get max customer_id to continue from
+          SELECT COALESCE(MAX(customer_id), 0) as max_id FROM etl_learning.dim_customer;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+          - name: "start_id"
+            type: "TEXT"
+            fetchColumn: "max_id"
+    
+    Generate Customer Data:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Verify Customer Count"
+      parameters:
+        componentName: "Generate Customer Data"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        - "start_id"
+        - "num_customers"
+        enableVariableResolution: "Yes"
+        sqlScript: |
+          -- SQL-based Customer Data Generator
+          -- Generates realistic customer data using Databricks SQL functions
+          
+          INSERT INTO etl_learning.dim_customer
+          WITH 
+          -- Reference data arrays
+          first_names AS (
+              SELECT explode(array(
+                  'James', 'Mary', 'John', 'Patricia', 'Robert', 'Jennifer', 'Michael',
+                  'Linda', 'William', 'Elizabeth', 'David', 'Barbara', 'Richard', 'Susan',
+                  'Joseph', 'Jessica', 'Thomas', 'Sarah', 'Christopher', 'Karen', 'Emma',
+                  'Oliver', 'Ava', 'Noah', 'Sophia', 'Liam', 'Isabella', 'Mason', 'Mia',
+                  'Ethan', 'Charlotte', 'Alexander', 'Amelia', 'Henry', 'Harper', 'Sebastian'
+              )) AS first_name
+          ),
+          last_names AS (
+              SELECT explode(array(
+                  'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller',
+                  'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez',
+                  'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin',
+                  'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Clark', 'Lewis',
+                  'Robinson', 'Walker', 'Young', 'Allen', 'King', 'Wright', 'Scott'
+              )) AS last_name
+          ),
+          cities AS (
+              SELECT * FROM (VALUES 
+                  ('New York', 'NY', '10001'),
+                  ('Los Angeles', 'CA', '90001'),
+                  ('Chicago', 'IL', '60601'),
+                  ('Houston', 'TX', '77001'),
+                  ('Phoenix', 'AZ', '85001'),
+                  ('Philadelphia', 'PA', '19101'),
+                  ('San Antonio', 'TX', '78201'),
+                  ('San Diego', 'CA', '92101'),
+                  ('Dallas', 'TX', '75201'),
+                  ('Austin', 'TX', '78701'),
+                  ('Seattle', 'WA', '98101'),
+                  ('Denver', 'CO', '80201'),
+                  ('Boston', 'MA', '02101'),
+                  ('Atlanta', 'GA', '30301'),
+                  ('Miami', 'FL', '33101'),
+                  ('Portland', 'OR', '97201')
+              ) AS t(city, state, postal_code)
+          ),
+          segments AS (
+              SELECT * FROM (VALUES 
+                  ('Premium', 0.10),
+                  ('Standard', 0.40),
+                  ('Basic', 0.35),
+                  ('Enterprise', 0.10),
+                  ('Startup', 0.05)
+              ) AS t(segment, weight)
+          ),
+          -- Generate sequence of customer IDs
+          customer_ids AS (
+              SELECT explode(sequence(
+                  CAST(${start_id} AS BIGINT) + 1, 
+                  CAST(${start_id} AS BIGINT) + CAST(${num_customers} AS INT)
+              )) AS customer_id
+          ),
+          -- Count reference data
+          fn_count AS (SELECT COUNT(*) AS cnt FROM first_names),
+          ln_count AS (SELECT COUNT(*) AS cnt FROM last_names),
+          city_count AS (SELECT COUNT(*) AS cnt FROM cities),
+          -- Generate random assignments
+          customer_base AS (
+              SELECT 
+                  c.customer_id,
+                  -- Random first name
+                  (SELECT first_name FROM first_names ORDER BY rand(c.customer_id) LIMIT 1) AS first_name,
+                  -- Random last name  
+                  (SELECT last_name FROM last_names ORDER BY rand(c.customer_id + 1000) LIMIT 1) AS last_name,
+                  -- Random city
+                  (SELECT city FROM cities ORDER BY rand(c.customer_id + 2000) LIMIT 1) AS city,
+                  (SELECT state FROM cities ORDER BY rand(c.customer_id + 2000) LIMIT 1) AS state,
+                  (SELECT postal_code FROM cities ORDER BY rand(c.customer_id + 2000) LIMIT 1) AS postal_code,
+                  -- Weighted segment selection
+                  CASE 
+                      WHEN rand(c.customer_id + 3000) < 0.10 THEN 'Premium'
+                      WHEN rand(c.customer_id + 3000) < 0.50 THEN 'Standard'
+                      WHEN rand(c.customer_id + 3000) < 0.85 THEN 'Basic'
+                      WHEN rand(c.customer_id + 3000) < 0.95 THEN 'Enterprise'
+                      ELSE 'Startup'
+                  END AS customer_segment,
+                  -- Random registration date (2018-01-01 to 2024-12-31)
+                  date_add('2018-01-01', CAST(rand(c.customer_id + 4000) * 2556 AS INT)) AS registration_date,
+                  -- 95% active
+                  rand(c.customer_id + 5000) > 0.05 AS is_active
+              FROM customer_ids c
+          )
+          SELECT 
+              customer_id,
+              CONCAT('CUS', UPPER(SUBSTR(md5(CAST(customer_id AS STRING)), 1, 8))) AS customer_code,
+              first_name,
+              last_name,
+              CONCAT(LOWER(first_name), '.', LOWER(last_name), 
+                     CAST(FLOOR(rand(customer_id + 6000) * 99) AS INT), 
+                     '@', 
+                     CASE CAST(FLOOR(rand(customer_id + 7000) * 5) AS INT)
+                         WHEN 0 THEN 'gmail.com'
+                         WHEN 1 THEN 'yahoo.com'
+                         WHEN 2 THEN 'outlook.com'
+                         WHEN 3 THEN 'company.com'
+                         ELSE 'email.com'
+                     END) AS email,
+              CONCAT('+1-', 
+                     CAST(200 + FLOOR(rand(customer_id + 8000) * 800) AS INT), '-',
+                     CAST(200 + FLOOR(rand(customer_id + 9000) * 800) AS INT), '-',
+                     CAST(1000 + FLOOR(rand(customer_id + 10000) * 9000) AS INT)) AS phone,
+              CONCAT(CAST(100 + FLOOR(rand(customer_id + 11000) * 9900) AS INT), ' ',
+                     CASE CAST(FLOOR(rand(customer_id + 12000) * 8) AS INT)
+                         WHEN 0 THEN 'Main' WHEN 1 THEN 'Oak' WHEN 2 THEN 'Pine'
+                         WHEN 3 THEN 'Maple' WHEN 4 THEN 'Cedar' WHEN 5 THEN 'Elm'
+                         WHEN 6 THEN 'Park' ELSE 'Lake'
+                     END, ' ',
+                     CASE CAST(FLOOR(rand(customer_id + 13000) * 8) AS INT)
+                         WHEN 0 THEN 'St' WHEN 1 THEN 'Ave' WHEN 2 THEN 'Blvd'
+                         WHEN 3 THEN 'Dr' WHEN 4 THEN 'Ln' WHEN 5 THEN 'Ct'
+                         WHEN 6 THEN 'Way' ELSE 'Rd'
+                     END) AS address_line1,
+              city,
+              state,
+              postal_code,
+              'US' AS country,
+              customer_segment,
+              registration_date,
+              is_active,
+              current_timestamp() AS created_at,
+              current_timestamp() AS updated_at
+          FROM customer_base;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Verify Customer Count:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log Completion"
+      parameters:
+        componentName: "Verify Customer Count"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Verify customer population
+          SELECT 
+              COUNT(*) as total_customers,
+              COUNT(DISTINCT customer_segment) as segments,
+              SUM(CASE WHEN is_active THEN 1 ELSE 0 END) as active_customers
+          FROM etl_learning.dim_customer;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    Log Completion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "End Success"
+      parameters:
+        componentName: "Log Completion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        enableVariableResolution: "No"
+        sqlScript: |
+          -- Log completion status
+          SELECT 
+              'Customer data generation completed!' AS status,
+              current_timestamp() AS completed_at,
+              (SELECT COUNT(*) FROM etl_learning.dim_customer) AS total_customers;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    
+    End Success:
+      type: "end-success"
+      parameters:
+        componentName: "End Success"
+
+  variables:
+    num_customers:
+      metadata:
+        type: "TEXT"
+        description: "Number of customers to generate"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "2000"
+    batch_size:
+      metadata:
+        type: "TEXT"
+        description: "Batch size for INSERT operations"
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "500"
+    start_id:
+      metadata:
+        type: "TEXT"
+        description: "Starting customer ID"
+        scope: "SHARED"
+        visibility: "PRIVATE"
+      defaultValue: "0"
+
+design:
+  components:
+    Start:
+      position:
+        x: -500
+        "y": 0
+      tempMetlId: 1
+    Set Configuration:
+      position:
+        x: -350
+        "y": 0
+      tempMetlId: 2
+    Check Existing Customers:
+      position:
+        x: -200
+        "y": 0
+      tempMetlId: 3
+    Generate Customer Data:
+      position:
+        x: -50
+        "y": 0
+      tempMetlId: 4
+    Verify Customer Count:
+      position:
+        x: 100
+        "y": 0
+      tempMetlId: 5
+    Log Completion:
+      position:
+        x: 250
+        "y": 0
+      tempMetlId: 6
+    End Success:
+      position:
+        x: 400
+        "y": 0
+      tempMetlId: 7
